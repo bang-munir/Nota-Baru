@@ -1,0 +1,8 @@
+{
+  "name": "NotaDigital",
+  "description": "Aplikasi pencatatan nota dan pembukuan keuangan modern dengan dashboard statistik, manajemen produk, transaksi, dan laporan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
