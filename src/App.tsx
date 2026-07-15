@@ -59,9 +59,23 @@ export default function App() {
       amount: Number(d.amount || 0)
     }));
 
-    // Parse items from DB - legacy single-item format only
+    // Parse items from DB - support serialized multiple items in product_name_snapshot
     let items = [];
-    if (t.product_id) {
+    if (t.product_name_snapshot && t.product_name_snapshot.trim().startsWith('[') && t.product_name_snapshot.trim().endsWith(']')) {
+      try {
+        items = JSON.parse(t.product_name_snapshot);
+      } catch (e) {
+        console.warn('Failed to parse multiple items from snapshot, using fallback:', e);
+        if (t.product_id) {
+          items = [{
+            productId: t.product_id,
+            productName: t.product_name_snapshot || '',
+            quantity: Number(t.quantity || 0),
+            priceAtSale: Number(t.price_at_sale || 0)
+          }];
+        }
+      }
+    } else if (t.product_id) {
       items = [{
         productId: t.product_id,
         productName: t.product_name_snapshot || '',
@@ -349,18 +363,35 @@ export default function App() {
         return;
       }
 
-      // 1. Insert transaction - save only first item to DB (database schema limitation)
-      const firstItem = newTrans.items[0] || { productId: '', productName: '', quantity: 0, priceAtSale: 0 };
+      // 1. Insert transaction
+      let productId = '';
+      let productNameSnapshot = '';
+      let quantity = 0;
+      let priceAtSale = 0;
+
+      if (newTrans.items.length === 1) {
+        const item = newTrans.items[0];
+        productId = item.productId;
+        productNameSnapshot = item.productName;
+        quantity = item.quantity;
+        priceAtSale = item.priceAtSale;
+      } else if (newTrans.items.length > 1) {
+        productId = newTrans.items[0]?.productId || 'p-1';
+        productNameSnapshot = JSON.stringify(newTrans.items);
+        quantity = newTrans.items.reduce((sum, item) => sum + item.quantity, 0);
+        priceAtSale = 0;
+      }
+
       const { error: transError } = await insforge.database
         .from('transactions')
         .insert([{
           id: freshTransId,
           customer_name: 'Pelanggan Umum',
           date: newTrans.date,
-          product_id: firstItem.productId,
-          product_name_snapshot: firstItem.productName,
-          quantity: firstItem.quantity,
-          price_at_sale: firstItem.priceAtSale,
+          product_id: productId,
+          product_name_snapshot: productNameSnapshot,
+          quantity: quantity,
+          price_at_sale: priceAtSale,
           paid_amount: newTrans.paidAmount
         }]);
 
@@ -402,16 +433,33 @@ export default function App() {
         return;
       }
 
-      // 1. Update transaction - save only first item to DB (database schema limitation)
-      const firstItem = editedTrans.items[0] || { productId: '', productName: '', quantity: 0, priceAtSale: 0 };
+      // 1. Update transaction
+      let productId = '';
+      let productNameSnapshot = '';
+      let quantity = 0;
+      let priceAtSale = 0;
+
+      if (editedTrans.items.length === 1) {
+        const item = editedTrans.items[0];
+        productId = item.productId;
+        productNameSnapshot = item.productName;
+        quantity = item.quantity;
+        priceAtSale = item.priceAtSale;
+      } else if (editedTrans.items.length > 1) {
+        productId = editedTrans.items[0]?.productId || 'p-1';
+        productNameSnapshot = JSON.stringify(editedTrans.items);
+        quantity = editedTrans.items.reduce((sum, item) => sum + item.quantity, 0);
+        priceAtSale = 0;
+      }
+
       const { error: transError } = await insforge.database
         .from('transactions')
         .update({
           date: editedTrans.date,
-          product_id: firstItem.productId,
-          product_name_snapshot: firstItem.productName,
-          quantity: firstItem.quantity,
-          price_at_sale: firstItem.priceAtSale,
+          product_id: productId,
+          product_name_snapshot: productNameSnapshot,
+          quantity: quantity,
+          price_at_sale: priceAtSale,
           paid_amount: editedTrans.paidAmount
         })
         .eq('id', editedTrans.id);

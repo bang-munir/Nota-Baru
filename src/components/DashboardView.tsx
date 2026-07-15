@@ -10,7 +10,8 @@ import {
   Calendar, 
   Clock, 
   Layers,
-  ArrowRight
+  ArrowRight,
+  Percent
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -32,6 +33,7 @@ export default function DashboardView({
     let totalBelanja = 0;
     let sisaHutang = 0;
     let sudahDibayar = 0;
+    let totalPotongan = 0;
     
     let totalBelanjaBulanIni = 0;
     let sisaHutangBulanIni = 0;
@@ -42,6 +44,7 @@ export default function DashboardView({
       totalBelanja += t.totalBill;
       sisaHutang += t.debtAmount;
       sudahDibayar += t.paidAmount;
+      totalPotongan += t.totalDiscountAmount;
 
       // This Month (July 2026 based on current system time)
       if (isThisMonth(t.date)) {
@@ -55,6 +58,7 @@ export default function DashboardView({
       totalBelanja,
       sisaHutang,
       sudahDibayar,
+      totalPotongan,
       totalBelanjaBulanIni,
       sisaHutangBulanIni,
       sudahDibayarBulanIni
@@ -113,15 +117,14 @@ export default function DashboardView({
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* Total Belanja */}
+        {/* Total Potongan */}
         <div className="bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs flex items-center gap-4 transition-all">
-          <div className="p-3.5 bg-primary/10 dark:bg-primary/20 rounded-xl text-primary">
-            <Layers className="h-6 w-6" />
+          <div className="p-3.5 bg-red-500/10 dark:bg-red-500/20 rounded-xl text-red-500">
+            <Percent className="h-6 w-6" />
           </div>
           <div className="space-y-0.5">
-            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Total Belanja</p>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatRupiah(stats.totalBelanja)}</h3>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">Total nilai seluruh transaksi</p>
+            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Total Potongan</p>
+            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatRupiah(stats.totalPotongan)}</h3>
           </div>
         </div>
 
@@ -133,9 +136,6 @@ export default function DashboardView({
           <div className="space-y-0.5">
             <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Sudah Dibayar</p>
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatRupiah(stats.sudahDibayar)}</h3>
-            <p className="text-[11px] text-success font-semibold flex items-center gap-1">
-              <span>Lunas Terbayar</span>
-            </p>
           </div>
         </div>
 
@@ -147,9 +147,6 @@ export default function DashboardView({
           <div className="space-y-0.5">
             <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Sisa Hutang</p>
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatRupiah(stats.sisaHutang)}</h3>
-            <p className="text-[11px] text-warning font-semibold flex items-center gap-1">
-              <span>Perlu Penagihan Segera</span>
-            </p>
           </div>
         </div>
 
@@ -175,7 +172,7 @@ export default function DashboardView({
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
                 }`}
               >
-                Omzet vs Terbayar
+                Terbayar
               </button>
               <button
                 onClick={() => setActiveChartTab('hutang')}
