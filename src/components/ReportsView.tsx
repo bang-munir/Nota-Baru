@@ -182,28 +182,25 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
     doc.setDrawColor(220, 224, 230);
     doc.rect(15, 30, 180, 16, 'S');
 
-    // Stats Titles (size 7.5, adjusted top padding)
+    // Stats Titles (size 7.5, adjusted top padding, distributed across 3 columns)
     doc.setTextColor(100, 110, 120);
     doc.setFontSize(7.5);
     doc.setFont('Helvetica', 'bold');
-    doc.text('OMZET', 20, 35);
-    doc.text('TOTAL TERBAYAR', 65, 35);
-    doc.text('SISA HUTANG', 110, 35);
-    doc.text('TOTAL POTONGAN', 155, 35);
+    doc.text('TOTAL TERBAYAR', 20, 35);
+    doc.text('SISA HUTANG', 80, 35);
+    doc.text('TOTAL POTONGAN', 140, 35);
 
-    // Stats Values (size 9)
-    doc.setTextColor(30, 30, 40);
+    // Stats Values (size 9, distributed across 3 columns)
     doc.setFontSize(9);
-    doc.text(formatRupiah(totals.belanja), 20, 41);
     
     doc.setTextColor(16, 185, 129); // Success Green
-    doc.text(formatRupiah(totals.dibayar), 65, 41);
+    doc.text(formatRupiah(totals.dibayar), 20, 41);
     
     doc.setTextColor(217, 119, 6); // Warning Amber
-    doc.text(formatRupiah(totals.hutang), 110, 41);
+    doc.text(formatRupiah(totals.hutang), 80, 41);
     
     doc.setTextColor(220, 38, 38); // Danger Red / Diskon
-    doc.text(formatRupiah(totals.totalPotongan), 155, 41);
+    doc.text(formatRupiah(totals.totalPotongan), 140, 41);
 
     // Detail Transactions Section Title
     doc.setTextColor(30, 30, 40);
@@ -218,13 +215,13 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(7.5);
     doc.setFont('Helvetica', 'bold');
-    doc.text('No Nota', 18, 61.5);
-    doc.text('Barang & Qty', 44, 61.5);
-    doc.text('Subtotal', 80, 61.5);
-    doc.text('Potongan (Rincian)', 104, 61.5);
-    doc.text('Total Potongan', 132, 61.5);
-    doc.text('Total Bersih', 156, 61.5);
-    doc.text('Status', 180, 61.5);
+    doc.text('No Nota', 16, 61.5);
+    doc.text('Barang & Qty', 38, 61.5);
+    doc.text('Subtotal', 84, 61.5);
+    doc.text('Potongan (Rincian)', 108, 61.5);
+    doc.text('Total Potongan', 138, 61.5);
+    doc.text('Total Bersih', 162, 61.5);
+    doc.text('Status', 184, 61.5);
 
     let currentY = 67;
     let rowIndex = 0;
@@ -247,13 +244,13 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
         doc.setTextColor(255, 255, 255);
         doc.setFontSize(7.5);
         doc.setFont('Helvetica', 'bold');
-        doc.text('No Nota', 18, 14);
-        doc.text('Barang & Qty', 44, 14);
-        doc.text('Subtotal', 80, 14);
-        doc.text('Potongan (Rincian)', 104, 14);
-        doc.text('Total Potongan', 132, 14);
-        doc.text('Total Bersih', 156, 14);
-        doc.text('Status', 180, 14);
+        doc.text('No Nota', 16, 14);
+        doc.text('Barang & Qty', 38, 14);
+        doc.text('Subtotal', 84, 14);
+        doc.text('Potongan (Rincian)', 108, 14);
+        doc.text('Total Potongan', 138, 14);
+        doc.text('Total Bersih', 162, 14);
+        doc.text('Status', 184, 14);
         currentY = 20;
       }
 
@@ -271,7 +268,7 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
       doc.setFont('Helvetica', 'bold');
       doc.setTextColor(79, 70, 229);
       doc.setFontSize(7.5);
-      doc.text(t.id, 18, currentY + 1);
+      doc.text(t.id, 16, currentY + 1);
 
       // Barang & Qty (drawn with product name on top line and details on the second line)
       t.items.forEach((item, idx) => {
@@ -279,15 +276,15 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
         doc.setFont('Helvetica', 'bold');
         doc.setTextColor(30, 30, 40);
         doc.setFontSize(7.5);
-        const nameTextTrunc = item.productName.length > 25 ? item.productName.substring(0, 22) + '...' : item.productName;
-        doc.text(nameTextTrunc, 44, currentY + 1 + (idx * 6.5));
+        const nameTextTrunc = item.productName.length > 34 ? item.productName.substring(0, 31) + '...' : item.productName;
+        doc.text(nameTextTrunc, 38, currentY + 1 + (idx * 6.5));
 
         // Line 2: Quantity & Price
         doc.setFont('Helvetica', 'normal');
         doc.setTextColor(110, 115, 125);
         doc.setFontSize(6.5);
         const qtyText = `(${item.quantity}x @ ${formatRupiah(item.priceAtSale)})`;
-        doc.text(qtyText, 44, currentY + 1 + (idx * 6.5) + 3);
+        doc.text(qtyText, 38, currentY + 1 + (idx * 6.5) + 3);
       });
 
       // Subtotal (before discount)
@@ -295,7 +292,7 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
       doc.setTextColor(30, 30, 40);
       doc.setFontSize(7.5);
       const subtotalVal = t.totalPrice !== undefined ? t.totalPrice : (t.totalBill + t.totalDiscountAmount);
-      doc.text(formatRupiah(subtotalVal), 80, currentY + 1);
+      doc.text(formatRupiah(subtotalVal), 84, currentY + 1);
 
       // Rincian Potongan (drawn with description on top line and amount on the second line)
       if (t.discounts && t.discounts.length > 0) {
@@ -305,43 +302,43 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
           doc.setTextColor(220, 38, 38);
           doc.setFontSize(7.5);
           const descText = d.description || 'Potongan';
-          const descTextTrunc = descText.length > 20 ? descText.substring(0, 17) + '...' : descText;
-          doc.text(descTextTrunc, 104, currentY + 1 + (idx * 6.5));
+          const descTextTrunc = descText.length > 22 ? descText.substring(0, 19) + '...' : descText;
+          doc.text(descTextTrunc, 108, currentY + 1 + (idx * 6.5));
 
           // Line 2: Discount amount
           doc.setFont('Helvetica', 'normal');
           doc.setTextColor(220, 38, 38);
           doc.setFontSize(6.5);
           const amtText = `(-${formatRupiah(d.amount)})`;
-          doc.text(amtText, 104, currentY + 1 + (idx * 6.5) + 3);
+          doc.text(amtText, 108, currentY + 1 + (idx * 6.5) + 3);
         });
       } else {
         doc.setFont('Helvetica', 'normal');
         doc.setTextColor(120, 120, 130);
         doc.setFontSize(7.5);
-        doc.text('-', 104, currentY + 1);
+        doc.text('-', 108, currentY + 1);
       }
 
       // Total Potongan
       doc.setFont('Helvetica', 'bold');
       doc.setTextColor(220, 38, 38);
-      doc.text(t.totalDiscountAmount > 0 ? `-${formatRupiah(t.totalDiscountAmount)}` : '-', 132, currentY + 1);
+      doc.text(t.totalDiscountAmount > 0 ? `-${formatRupiah(t.totalDiscountAmount)}` : '-', 138, currentY + 1);
 
       // Total Bersih
       doc.setTextColor(30, 30, 40);
-      doc.text(formatRupiah(t.totalBill), 156, currentY + 1);
+      doc.text(formatRupiah(t.totalBill), 162, currentY + 1);
 
       // Status
       doc.setFontSize(6.5);
       if (t.debtAmount === 0) {
         doc.setTextColor(16, 185, 129);
-        doc.text('Lunas', 180, currentY + 1);
+        doc.text('Lunas', 184, currentY + 1);
       } else if (t.paidAmount === 0) {
         doc.setTextColor(239, 68, 68);
-        doc.text('Hutang', 180, currentY + 1);
+        doc.text('Hutang', 184, currentY + 1);
       } else {
         doc.setTextColor(245, 158, 11);
-        doc.text('Sisa Hutang', 180, currentY + 1);
+        doc.text('Sisa Hutang', 184, currentY + 1);
       }
 
       currentY += rowHeight;
@@ -449,13 +446,7 @@ export default function ReportsView({ transactions, products }: ReportsViewProps
         </div>
 
         {/* Overview Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          
-          <div className="bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs">
-            <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Omzet ({getPeriodLabel()})</p>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 mt-1">{formatRupiah(totals.belanja)}</h3>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">Total kotor belanja pelanggan</p>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
           <div className="bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs">
             <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Total Terbayar ({getPeriodLabel()})</p>
