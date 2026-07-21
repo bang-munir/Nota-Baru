@@ -37,19 +37,7 @@ export default function SneatNavbar({
 
       {/* Right items */}
       <div className="flex items-center gap-2 sm:gap-3">
-        
-        {/* Theme Toggle */}
-        <button
-          onClick={onThemeToggle}
-          className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-[#2b2c40] transition-colors relative group"
-          title={theme === 'light' ? 'Mode Gelap' : 'Mode Terang'}
-        >
-          {theme === 'light' ? (
-            <Moon className="h-5 w-5 text-slate-600 dark:text-slate-300" />
-          ) : (
-            <Sun className="h-5 w-5 text-warning" />
-          )}
-        </button>
+        {/* Theme Toggle removed to force clean light-only interface */}
       </div>
     </nav>
   );

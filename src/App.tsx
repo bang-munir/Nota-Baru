@@ -184,32 +184,16 @@ export default function App() {
     // Initial fetch from InsForge
     loadData();
 
-    // Load theme setting
-    let cachedTheme: ThemeType = 'light';
-    try {
-      const themeVal = localStorage.getItem('notadigital_theme');
-      if (themeVal === 'dark' || themeVal === 'light') {
-        cachedTheme = themeVal as ThemeType;
-      }
-    } catch (e) {
-      console.warn('localStorage is not accessible for loading theme:', e);
-    }
-    setTheme(cachedTheme);
+    // Ensure dark mode class is completely removed from the document root
+    const root = window.document.documentElement;
+    root.classList.remove('dark');
   }, []);
 
-  // --- THEME REFLECTION ---
+  // --- THEME FORCE LIGHT ---
   useEffect(() => {
     const root = window.document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    try {
-      localStorage.setItem('notadigital_theme', theme);
-    } catch (e) {
-      console.warn('localStorage is not accessible for saving theme:', e);
-    }
+    root.classList.remove('dark');
+    setTheme('light');
   }, [theme]);
 
   // --- CRUD PRODUCT HANDLERS ---

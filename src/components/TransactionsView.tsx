@@ -237,10 +237,16 @@ export default function TransactionsView({
 
   // Search filter
   const filteredTransactions = useMemo(() => {
-    return transactions.filter(t => 
-      t.items.some(item => item.productName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      t.id.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    return transactions
+      .filter(t => 
+        t.items.some(item => item.productName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        t.id.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+      .sort((a, b) => {
+        const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return b.id.localeCompare(a.id);
+      });
   }, [transactions, searchQuery]);
 
   // Calculations in form
