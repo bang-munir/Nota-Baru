@@ -575,7 +575,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex min-h-screen bg-[#f5f5f9] dark:bg-[#1e1e2d] text-slate-800 dark:text-slate-100 font-sans transition-colors duration-200">
+    <div className="flex min-h-screen bg-[#f5f5f9] text-slate-800 font-sans transition-colors duration-200">
       
       {/* Sneat Sidebar Navigation */}
       <div className="no-print">
