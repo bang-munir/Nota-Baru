@@ -29,5 +29,13 @@ export interface Transaction {
   debtAmount: number; // totalBill - paidAmount (Sisa Hutang)
 }
 
+export interface Payment {
+  id: string;
+  transactionId: string;
+  amount: number;
+  paymentDate: string; // ISO string
+  note?: string;
+}
+
 export type ViewType = 'dashboard' | 'transaksi' | 'produk' | 'laporan';
 export type ThemeType = 'light' | 'dark';

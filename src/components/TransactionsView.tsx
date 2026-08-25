@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Transaction, Product, Discount, TransactionItem } from '../types';
+import { Transaction, Product, Discount, TransactionItem, Payment } from '../types';
 import { formatRupiah, formatDateIndo } from '../utils';
 import { 
   Plus, 
@@ -19,10 +19,24 @@ import {
   MinusCircle,
   Printer,
   ChevronRight,
-  Download
+  Download,
+  Banknote,
+  HandCoins,
+  History,
+  Pencil,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
+
+// Helper: get today's date in Asia/Jakarta timezone (YYYY-MM-DD)
+const getTodayJakarta = (): string => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+};
 
 // Helper to generate a clean, modern PDF receipt client-side
 export const generateReceiptPDF = (t: Transaction) => {
@@ -201,17 +215,25 @@ export const generateReceiptPDF = (t: Transaction) => {
 interface TransactionsViewProps {
   transactions: Transaction[];
   products: Product[];
+  payments: Payment[];
   onAddTransaction: (transaction: Omit<Transaction, 'id' | 'totalProductPrice' | 'totalDiscountAmount' | 'totalBill' | 'debtAmount'>) => void;
   onEditTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
+  onAddPayment: (transactionId: string, amount: number) => Promise<void>;
+  onEditPayment: (paymentId: string, newAmount: number, newDate: string) => Promise<void>;
+  onDeletePayment: (paymentId: string) => Promise<void>;
 }
 
 export default function TransactionsView({
   transactions,
   products,
+  payments,
   onAddTransaction,
   onEditTransaction,
-  onDeleteTransaction
+  onDeleteTransaction,
+  onAddPayment,
+  onEditPayment,
+  onDeletePayment
 }: TransactionsViewProps) {
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -222,9 +244,19 @@ export default function TransactionsView({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [paymentTransaction, setPaymentTransaction] = useState<Transaction | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
+  const [paymentError, setPaymentError] = useState('');
+  
+  // Edit Payment state
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [editPaymentAmount, setEditPaymentAmount] = useState<number | ''>('');
+  const [editPaymentDate, setEditPaymentDate] = useState('');
+  const [editPaymentError, setEditPaymentError] = useState('');
+  
+  // Delete Payment state
+  const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
 
   // Form states for multiple items
-  const [date, setDate] = useState('2026-07-15');
+  const [date, setDate] = useState(() => getTodayJakarta());
   const [items, setItems] = useState<TransactionItem[]>([]);
   const [discounts, setDiscounts] = useState<{ description: string; amount: number }[]>([]);
   const [paidAmount, setPaidAmount] = useState<number | ''>('');
@@ -304,7 +336,7 @@ export default function TransactionsView({
 
   // Start Transaction Creation
   const openCreateModal = () => {
-    setDate('2026-07-15');
+    setDate(getTodayJakarta());
     setItems([]);
     setDiscounts([]);
     setPaidAmount('');
@@ -379,31 +411,78 @@ export default function TransactionsView({
   };
 
   // Handle Payment for Hutang
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!paymentTransaction) return;
     
     const paymentValue = paymentAmount === '' ? 0 : Number(paymentAmount);
-    if (paymentValue <= 0) return;
+    
+    // Validation
+    if (paymentValue <= 0) {
+      setPaymentError('Nominal pembayaran harus lebih dari Rp 0.');
+      return;
+    }
 
-    const newPaidAmount = paymentTransaction.paidAmount + paymentValue;
-    const newDebtAmount = Math.max(paymentTransaction.totalBill - newPaidAmount, 0);
+    if (paymentValue > paymentTransaction.debtAmount) {
+      setPaymentError(`Nominal pembayaran tidak boleh melebihi sisa hutang ${formatRupiah(paymentTransaction.debtAmount)}.`);
+      return;
+    }
 
-    // Update the transaction with the new payment
-    onEditTransaction({
-      id: paymentTransaction.id,
-      date: paymentTransaction.date,
-      items: paymentTransaction.items,
-      discounts: paymentTransaction.discounts,
-      paidAmount: newPaidAmount,
-      totalProductPrice: paymentTransaction.totalProductPrice,
-      totalDiscountAmount: paymentTransaction.totalDiscountAmount,
-      totalBill: paymentTransaction.totalBill,
-      debtAmount: newDebtAmount
-    });
-
+    setPaymentError('');
+    await onAddPayment(paymentTransaction.id, paymentValue);
+    
     // Close modal and reset
     setPaymentTransaction(null);
     setPaymentAmount('');
+    setPaymentError('');
+  };
+
+  // Get payment history for a transaction
+  const getPaymentHistory = (transactionId: string): Payment[] => {
+    return payments
+      .filter(p => p.transactionId === transactionId)
+      .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
+  };
+
+  // Open edit payment modal
+  const openEditPayment = (payment: Payment) => {
+    setEditingPayment(payment);
+    setEditPaymentAmount(payment.amount);
+    setEditPaymentDate(payment.paymentDate.split('T')[0]);
+    setEditPaymentError('');
+  };
+
+  // Handle edit payment submit
+  const handleEditPaymentSubmit = async () => {
+    if (!editingPayment) return;
+    
+    const newAmount = editPaymentAmount === '' ? 0 : Number(editPaymentAmount);
+    
+    // Validation
+    if (newAmount <= 0) {
+      setEditPaymentError('Nominal pembayaran harus lebih dari Rp 0.');
+      return;
+    }
+
+    setEditPaymentError('');
+    await onEditPayment(editingPayment.id, newAmount, editPaymentDate);
+    
+    // Close modal and reset
+    setEditingPayment(null);
+    setEditPaymentAmount('');
+    setEditPaymentDate('');
+    setEditPaymentError('');
+  };
+
+  // Open delete payment confirmation
+  const openDeletePayment = (payment: Payment) => {
+    setDeletingPayment(payment);
+  };
+
+  // Handle delete payment confirm
+  const handleDeletePaymentConfirm = async () => {
+    if (!deletingPayment) return;
+    await onDeletePayment(deletingPayment.id);
+    setDeletingPayment(null);
   };
 
   return (
@@ -461,10 +540,10 @@ export default function TransactionsView({
       )}
 
       {/* Transactions Table Card */}
-      <div className="bg-white dark:bg-[#232333] rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm">Daftar Transaksi Nota</h4>
-          <span className="px-2.5 py-0.5 bg-primary/10 text-primary font-bold text-[10px] rounded-full">
+      <div className="bg-white dark:bg-[#232333] rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] border-t-[3px] border-t-blue-500 shadow-xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-blue-100 dark:border-slate-800 bg-blue-50/50 dark:bg-[#202030]/50 flex items-center justify-between">
+          <h4 className="font-bold text-blue-800 dark:text-slate-100 text-sm">Daftar Transaksi Nota</h4>
+          <span className="px-2.5 py-0.5 bg-blue-500 text-white font-bold text-[10px] rounded-full">
             {filteredTransactions.length} Transaksi
           </span>
         </div>
@@ -542,17 +621,18 @@ export default function TransactionsView({
                   {/* Action Buttons */}
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-1 flex-wrap">
-                      {/* Lunasi Button - Show only if there's debt */}
+                      {/* Bayar Button - Show only if there's debt */}
                       {t.debtAmount > 0 && (
                         <button
                           onClick={() => {
                             setPaymentTransaction(t);
                             setPaymentAmount('');
+                            setPaymentError('');
                           }}
-                          className="px-2 py-1 text-[10px] font-bold text-white bg-success hover:bg-emerald-600 rounded-lg transition-all cursor-pointer"
-                          title="Lunasi Hutang"
+                          className="px-2 py-1 text-[10px] font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-all cursor-pointer"
+                          title="Bayar"
                         >
-                          Lunasi
+                          Bayar
                         </button>
                       )}
 
@@ -662,17 +742,18 @@ export default function TransactionsView({
                 </span>
                 
                 <div className="flex items-center gap-1.5">
-                  {/* Lunasi Button - Show only if there's debt */}
+                  {/* Bayar Button - Show only if there's debt */}
                   {t.debtAmount > 0 && (
                     <button
                       onClick={() => {
                         setPaymentTransaction(t);
                         setPaymentAmount('');
+                        setPaymentError('');
                       }}
-                      className="px-2.5 py-1 text-[10px] font-bold text-white bg-success hover:bg-emerald-600 rounded-lg transition-all cursor-pointer"
-                      title="Lunasi Hutang"
+                      className="px-2.5 py-1 text-[10px] font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg transition-all cursor-pointer"
+                      title="Bayar"
                     >
-                      Lunasi
+                      Bayar
                     </button>
                   )}
 
@@ -1111,6 +1192,53 @@ export default function TransactionsView({
                     )}
                   </div>
                 </div>
+
+                {/* Payment History in Detail View */}
+                {(() => {
+                  const history = getPaymentHistory(viewingTransaction.id);
+                  if (history.length > 0) {
+                    return (
+                      <div className="border-t border-slate-100 pt-4 space-y-2.5">
+                        <div className="flex items-center gap-1.5">
+                          <History className="h-3.5 w-3.5 text-slate-400" />
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Riwayat Pembayaran</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {history.map((p, idx) => (
+                            <div key={p.id} className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg text-xs">
+                              <div className="flex items-center gap-2.5">
+                                <span className="w-5 h-5 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-[9px] font-bold">
+                                  {idx + 1}
+                                </span>
+                                <div>
+                                  <p className="font-bold text-slate-700">{formatRupiah(p.amount)}</p>
+                                  <p className="text-[10px] text-slate-400">{formatDateIndo(p.paymentDate.split('T')[0])}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => openEditPayment(p)}
+                                  className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                                  title="Edit Pembayaran"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                <button
+                                  onClick={() => openDeletePayment(p)}
+                                  className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                  title="Hapus Pembayaran"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
  
                 {/* Decorative Stamps / Watermark representing "LUNAS" or "BELUM LUNAS" */}
                 <div className="flex justify-center pt-4">
@@ -1157,40 +1285,92 @@ export default function TransactionsView({
               onClick={() => {
                 setPaymentTransaction(null);
                 setPaymentAmount('');
+                setPaymentError('');
               }}
               className="absolute inset-0 bg-black/50 backdrop-blur-xs"
             />
             
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white dark:bg-[#232333] rounded-2xl shadow-2xl border border-[#e4e6e8] dark:border-[#43445b] z-10 p-6 w-full max-w-sm space-y-4"
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.95, y: 15, opacity: 0 }}
+              className="bg-white dark:bg-[#232333] rounded-2xl shadow-2xl border border-[#e4e6e8] dark:border-[#43445b] z-10 p-6 w-full max-w-md space-y-4 max-h-[90vh] overflow-y-auto"
             >
-              <div>
-                <h4 className="font-bold text-slate-800 dark:text-slate-100">Lunasi Hutang</h4>
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                  <Wallet className="h-5 w-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-800 dark:text-slate-100">Pembayaran Transaksi</h4>
+                  <p className="text-[10px] text-slate-400">#{paymentTransaction.id}</p>
+                </div>
               </div>
 
               {/* Transaction Summary */}
-              <div className="bg-slate-50 dark:bg-slate-800/30 p-3 rounded-lg space-y-2 text-xs">
+              <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:bg-slate-800/30 p-4 rounded-xl space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Total Tagihan:</span>
+                  <span className="text-slate-500">Total Tagihan</span>
                   <span className="font-bold text-slate-800 dark:text-slate-100">{formatRupiah(paymentTransaction.totalBill)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Sudah Dibayar:</span>
-                  <span className="font-bold text-success">{formatRupiah(paymentTransaction.paidAmount)}</span>
+                  <span className="text-slate-500">Sudah Dibayar</span>
+                  <span className="font-bold text-emerald-600">{formatRupiah(paymentTransaction.paidAmount)}</span>
                 </div>
                 <div className="border-t border-slate-200 dark:border-slate-700 pt-2 flex justify-between">
-                  <span className="text-slate-600 dark:text-slate-400">Sisa Hutang:</span>
-                  <span className="font-bold text-warning">{formatRupiah(paymentTransaction.debtAmount)}</span>
+                  <span className="text-slate-500 font-semibold">Sisa Hutang</span>
+                  <span className="font-bold text-rose-600">{formatRupiah(paymentTransaction.debtAmount)}</span>
                 </div>
               </div>
+
+              {/* Payment History */}
+              {(() => {
+                const history = getPaymentHistory(paymentTransaction.id);
+                if (history.length > 0) {
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <History className="h-3.5 w-3.5 text-slate-400" />
+                        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Riwayat Pembayaran</span>
+                      </div>
+                      <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
+                        {history.map((p, idx) => (
+                          <div key={p.id} className="flex items-center justify-between p-2 bg-slate-50 dark:bg-slate-800/30 rounded-lg text-[11px]">
+                            <div className="flex items-center gap-2">
+                              <span className="w-5 h-5 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-[9px] font-bold">
+                                {idx + 1}
+                              </span>
+                              <span className="text-slate-500">{formatDateIndo(p.paymentDate.split('T')[0])}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-700 dark:text-slate-200">{formatRupiah(p.amount)}</span>
+                              <button
+                                onClick={() => openEditPayment(p)}
+                                className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors cursor-pointer"
+                                title="Edit Pembayaran"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                              <button
+                                onClick={() => openDeletePayment(p)}
+                                className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded transition-colors cursor-pointer"
+                                title="Hapus Pembayaran"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               {/* Payment Input */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Jumlah Pembayaran (Rp)
+                  Nominal Pembayaran
                 </label>
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-xs font-bold text-slate-400">
@@ -1202,23 +1382,30 @@ export default function TransactionsView({
                     max={paymentTransaction.debtAmount}
                     placeholder={`Maks: ${formatRupiah(paymentTransaction.debtAmount)}`}
                     value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-[#e4e6e8] dark:border-[#43445b] bg-[#fff] dark:bg-[#1e1e2d] text-slate-700 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:border-primary font-mono font-bold"
+                    onChange={(e) => {
+                      setPaymentAmount(e.target.value === '' ? '' : Number(e.target.value));
+                      setPaymentError('');
+                    }}
+                    className="w-full pl-9 pr-3 py-2.5 text-xs rounded-lg border border-[#e4e6e8] dark:border-[#43445b] bg-[#fff] dark:bg-[#1e1e2d] text-slate-700 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:border-emerald-500 font-mono font-bold"
                   />
                 </div>
-                {paymentAmount && paymentAmount !== '' && (
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Sisa hutang setelah: <span className="font-bold text-success">{formatRupiah(Math.max(paymentTransaction.debtAmount - Number(paymentAmount), 0))}</span>
+                {paymentError && (
+                  <p className="text-[11px] text-rose-500 font-medium">{paymentError}</p>
+                )}
+                {paymentAmount && paymentAmount !== '' && !paymentError && (
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Sisa hutang setelah: <span className="font-bold text-emerald-600">{formatRupiah(Math.max(paymentTransaction.debtAmount - Number(paymentAmount), 0))}</span>
                   </div>
                 )}
               </div>
 
               {/* Buttons */}
-              <div className="flex justify-end gap-2.5">
+              <div className="flex justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   onClick={() => {
                     setPaymentTransaction(null);
                     setPaymentAmount('');
+                    setPaymentError('');
                   }}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                 >
@@ -1227,13 +1414,14 @@ export default function TransactionsView({
                 <button
                   onClick={handlePayment}
                   disabled={paymentAmount === '' || Number(paymentAmount) <= 0}
-                  className={`px-4 py-2 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                  className={`px-4 py-2 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
                     paymentAmount === '' || Number(paymentAmount) <= 0
                       ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed'
-                      : 'bg-success hover:bg-emerald-600'
+                      : 'bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20'
                   }`}
                 >
-                  Konfirmasi Pembayaran
+                  <Wallet className="h-4 w-4" />
+                  <span>Bayar</span>
                 </button>
               </div>
             </motion.div>
@@ -1275,6 +1463,150 @@ export default function TransactionsView({
                   className="px-4 py-2 bg-danger hover:bg-red-600 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
                 >
                   Hapus
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Edit Payment Modal */}
+        {editingPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setEditingPayment(null)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-[#232333] rounded-2xl shadow-2xl border border-[#e4e6e8] dark:border-[#43445b] z-10 p-6 w-full max-w-sm"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                  <Pencil className="h-4 w-4 text-blue-600" />
+                </div>
+                <h4 className="font-bold text-slate-800 dark:text-slate-100">Edit Pembayaran</h4>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Tanggal Pembayaran
+                  </label>
+                  <input
+                    type="date"
+                    value={editPaymentDate}
+                    onChange={(e) => setEditPaymentDate(e.target.value)}
+                    className="w-full px-3 py-2.5 text-xs rounded-lg border border-[#e4e6e8] dark:border-[#43445b] bg-[#fff] dark:bg-[#1e1e2d] text-slate-700 dark:text-slate-100 focus:outline-hidden focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Nominal Pembayaran
+                  </label>
+                  <div className="relative">
+                    <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-xs font-bold text-slate-400">
+                      Rp
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Masukkan nominal"
+                      value={editPaymentAmount}
+                      onChange={(e) => {
+                        setEditPaymentAmount(e.target.value === '' ? '' : Number(e.target.value));
+                        setEditPaymentError('');
+                      }}
+                      className="w-full pl-9 pr-3 py-2.5 text-xs rounded-lg border border-[#e4e6e8] dark:border-[#43445b] bg-[#fff] dark:bg-[#1e1e2d] text-slate-700 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:border-blue-500 font-mono font-bold"
+                    />
+                  </div>
+                  {editPaymentError && (
+                    <p className="text-[11px] text-rose-500 font-medium">{editPaymentError}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2.5 pt-4 mt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={() => setEditingPayment(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleEditPaymentSubmit}
+                  disabled={editPaymentAmount === '' || Number(editPaymentAmount) <= 0}
+                  className={`px-4 py-2 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+                    editPaymentAmount === '' || Number(editPaymentAmount) <= 0
+                      ? 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed'
+                      : 'bg-blue-500 hover:bg-blue-600 shadow-md shadow-blue-500/20'
+                  }`}
+                >
+                  <Check className="h-4 w-4" />
+                  <span>Simpan Perubahan</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Delete Payment Confirmation Modal */}
+        {deletingPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setDeletingPayment(null)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-[#232333] rounded-2xl shadow-2xl border border-[#e4e6e8] dark:border-[#43445b] z-10 p-6 w-full max-w-sm"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 bg-rose-100 dark:bg-rose-900/30 rounded-full flex items-center justify-center">
+                  <Trash2 className="h-4 w-4 text-rose-600" />
+                </div>
+                <h4 className="font-bold text-slate-800 dark:text-slate-100">Hapus Pembayaran?</h4>
+              </div>
+              
+              <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 mb-4">
+                <p className="text-xs text-slate-600 dark:text-slate-400 mb-1">
+                  Pembayaran sebesar:
+                </p>
+                <p className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                  {formatRupiah(deletingPayment.amount)}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {formatDateIndo(deletingPayment.paymentDate.split('T')[0])}
+                </p>
+              </div>
+              
+              <p className="text-xs text-slate-600 dark:text-slate-400 mb-4">
+                Jika dihapus, total pembayaran dan status transaksi akan dihitung ulang.
+              </p>
+
+              <div className="flex justify-end gap-2.5">
+                <button
+                  onClick={() => setDeletingPayment(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleDeletePaymentConfirm}
+                  className="px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  <span>Hapus</span>
                 </button>
               </div>
             </motion.div>

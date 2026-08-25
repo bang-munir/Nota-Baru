@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Product, Transaction, Discount, ViewType, ThemeType } from './types';
+import { Product, Transaction, Discount, Payment, ViewType, ThemeType } from './types';
 import { INITIAL_PRODUCTS, INITIAL_TRANSACTIONS } from './data/mockData.ts';
 import { insforge } from './lib/insforge.ts';
 import { motion, AnimatePresence } from 'motion/react';
@@ -22,6 +22,7 @@ export default function App() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -147,6 +148,274 @@ export default function App() {
     }
   };
 
+  // --- PAYMENTS STORAGE ---
+  const STORAGE_KEY_PAYMENTS = 'notadigital_payments';
+
+  const loadPayments = (): Payment[] => {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY_PAYMENTS);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.warn('Failed to load payments from localStorage:', e);
+    }
+    return [];
+  };
+
+  const savePayments = (newPayments: Payment[]) => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY_PAYMENTS, JSON.stringify(newPayments));
+    } catch (e) {
+      console.warn('Failed to save payments to localStorage:', e);
+    }
+  };
+
+  const handleAddPayment = async (transactionId: string, amount: number) => {
+    try {
+      // Find the transaction
+      const transaction = transactions.find(t => t.id === transactionId);
+      if (!transaction) {
+        showToast('Transaksi tidak ditemukan', 'danger');
+        return;
+      }
+
+      // Validate amount
+      if (amount <= 0) {
+        showToast('Nominal pembayaran harus lebih dari Rp 0', 'danger');
+        return;
+      }
+
+      if (amount > transaction.debtAmount) {
+        showToast(`Nominal pembayaran tidak boleh melebihi sisa hutang ${formatRupiahLocal(transaction.debtAmount)}`, 'danger');
+        return;
+      }
+
+      // Create new payment
+      const newPayment: Payment = {
+        id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        transactionId,
+        amount,
+        paymentDate: new Date().toISOString(),
+      };
+
+      // Update payments list
+      const updatedPayments = [...payments, newPayment];
+      setPayments(updatedPayments);
+      savePayments(updatedPayments);
+
+      // Calculate new total paid
+      const totalPaid = updatedPayments
+        .filter(p => p.transactionId === transactionId)
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      // Update transaction in InsForge
+      const { error } = await insforge.database
+        .from('transactions')
+        .update({ paid_amount: totalPaid })
+        .eq('id', transactionId);
+
+      if (error) throw error;
+
+      // Update local state
+      const updatedTransactions = transactions.map(t => {
+        if (t.id === transactionId) {
+          const newPaidAmount = totalPaid;
+          const newDebtAmount = Math.max(t.totalBill - newPaidAmount, 0);
+          return {
+            ...t,
+            paidAmount: newPaidAmount,
+            debtAmount: newDebtAmount,
+          };
+        }
+        return t;
+      });
+      setTransactions(updatedTransactions);
+
+      // Save to localStorage if using local fallback
+      if (usingLocalFallback) {
+        try {
+          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
+        } catch (e) { console.warn(e); }
+      }
+
+      // Show success message
+      const newDebt = Math.max(transaction.totalBill - totalPaid, 0);
+      if (newDebt === 0) {
+        showToast(`Pembayaran berhasil. Transaksi sekarang LUNAS.`, 'success');
+      } else {
+        showToast(`Pembayaran ${formatRupiahLocal(amount)} berhasil dicatat.`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Payment error:', err);
+      showToast('Gagal mencatat pembayaran: ' + err.message, 'danger');
+    }
+  };
+
+  const handleEditPayment = async (paymentId: string, newAmount: number, newDate: string) => {
+    try {
+      // Find the payment
+      const payment = payments.find(p => p.id === paymentId);
+      if (!payment) {
+        showToast('Pembayaran tidak ditemukan', 'danger');
+        return;
+      }
+
+      // Validate amount
+      if (newAmount <= 0) {
+        showToast('Nominal pembayaran harus lebih dari Rp 0', 'danger');
+        return;
+      }
+
+      // Find the transaction
+      const transaction = transactions.find(t => t.id === payment.transactionId);
+      if (!transaction) {
+        showToast('Transaksi tidak ditemukan', 'danger');
+        return;
+      }
+
+      // Calculate total of OTHER payments (excluding this one)
+      const otherPaymentsTotal = payments
+        .filter(p => p.transactionId === payment.transactionId && p.id !== paymentId)
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      // Check if new total would exceed total bill
+      const newTotalPaid = otherPaymentsTotal + newAmount;
+      if (newTotalPaid > transaction.totalBill) {
+        showToast('Total pembayaran melebihi sisa tagihan. Periksa kembali nominal pembayaran.', 'danger');
+        return;
+      }
+
+      // Update payment in list
+      const updatedPayments = payments.map(p => {
+        if (p.id === paymentId) {
+          return { ...p, amount: newAmount, paymentDate: newDate };
+        }
+        return p;
+      });
+      setPayments(updatedPayments);
+      savePayments(updatedPayments);
+
+      // Update transaction in InsForge
+      const { error } = await insforge.database
+        .from('transactions')
+        .update({ paid_amount: newTotalPaid })
+        .eq('id', payment.transactionId);
+
+      if (error) throw error;
+
+      // Update local state
+      const updatedTransactions = transactions.map(t => {
+        if (t.id === payment.transactionId) {
+          const newDebtAmount = Math.max(t.totalBill - newTotalPaid, 0);
+          return {
+            ...t,
+            paidAmount: newTotalPaid,
+            debtAmount: newDebtAmount,
+          };
+        }
+        return t;
+      });
+      setTransactions(updatedTransactions);
+
+      // Save to localStorage if using local fallback
+      if (usingLocalFallback) {
+        try {
+          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
+        } catch (e) { console.warn(e); }
+      }
+
+      // Show success message
+      const newDebt = Math.max(transaction.totalBill - newTotalPaid, 0);
+      if (newDebt === 0) {
+        showToast('Pembayaran berhasil diperbarui. Transaksi sekarang LUNAS.', 'success');
+      } else {
+        showToast(`Pembayaran berhasil diperbarui. Sisa hutang: ${formatRupiahLocal(newDebt)}`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Edit payment error:', err);
+      showToast('Gagal memperbarui pembayaran: ' + err.message, 'danger');
+    }
+  };
+
+  const handleDeletePayment = async (paymentId: string) => {
+    try {
+      // Find the payment
+      const payment = payments.find(p => p.id === paymentId);
+      if (!payment) {
+        showToast('Pembayaran tidak ditemukan', 'danger');
+        return;
+      }
+
+      // Find the transaction
+      const transaction = transactions.find(t => t.id === payment.transactionId);
+      if (!transaction) {
+        showToast('Transaksi tidak ditemukan', 'danger');
+        return;
+      }
+
+      // Remove payment from list
+      const updatedPayments = payments.filter(p => p.id !== paymentId);
+      setPayments(updatedPayments);
+      savePayments(updatedPayments);
+
+      // Calculate new total paid
+      const newTotalPaid = updatedPayments
+        .filter(p => p.transactionId === payment.transactionId)
+        .reduce((sum, p) => sum + p.amount, 0);
+
+      // Update transaction in InsForge
+      const { error } = await insforge.database
+        .from('transactions')
+        .update({ paid_amount: newTotalPaid })
+        .eq('id', payment.transactionId);
+
+      if (error) throw error;
+
+      // Update local state
+      const updatedTransactions = transactions.map(t => {
+        if (t.id === payment.transactionId) {
+          const newDebtAmount = Math.max(t.totalBill - newTotalPaid, 0);
+          return {
+            ...t,
+            paidAmount: newTotalPaid,
+            debtAmount: newDebtAmount,
+          };
+        }
+        return t;
+      });
+      setTransactions(updatedTransactions);
+
+      // Save to localStorage if using local fallback
+      if (usingLocalFallback) {
+        try {
+          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
+        } catch (e) { console.warn(e); }
+      }
+
+      // Show success message
+      const newDebt = Math.max(transaction.totalBill - newTotalPaid, 0);
+      if (newDebt === 0) {
+        showToast('Pembayaran berhasil dihapus. Transaksi tetap LUNAS.', 'success');
+      } else {
+        showToast(`Pembayaran berhasil dihapus. Sisa hutang: ${formatRupiahLocal(newDebt)}`, 'success');
+      }
+    } catch (err: any) {
+      console.error('Delete payment error:', err);
+      showToast('Gagal menghapus pembayaran: ' + err.message, 'danger');
+    }
+  };
+
+  // Helper for formatting (local use)
+  const formatRupiahLocal = (value: number): string => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(value);
+  };
+
   // --- DB DATA LOADER ---
   const loadData = async () => {
     setIsLoading(true);
@@ -171,6 +440,26 @@ export default function App() {
       setProducts(dbProducts || []);
       setTransactions((dbTransactions || []).map(mapDBTransactionToLocal));
       setUsingLocalFallback(false);
+
+      // 3. Load payments from localStorage
+      const storedPayments = loadPayments();
+      setPayments(storedPayments);
+
+      // 4. Sync paidAmount from payments to transactions
+      const syncedTransactions = (dbTransactions || []).map((dbTrans: any) => {
+        const local = mapDBTransactionToLocal(dbTrans);
+        const transPayments = storedPayments.filter(p => p.transactionId === local.id);
+        if (transPayments.length > 0) {
+          const totalPaid = transPayments.reduce((sum, p) => sum + p.amount, 0);
+          return {
+            ...local,
+            paidAmount: totalPaid,
+            debtAmount: Math.max(local.totalBill - totalPaid, 0),
+          };
+        }
+        return local;
+      });
+      setTransactions(syncedTransactions);
     } catch (err: any) {
       console.warn('Failed to load data from InsForge database. Gracefully falling back to local storage...', err);
       loadLocalFallback();
@@ -526,6 +815,7 @@ export default function App() {
           <DashboardView 
             transactions={transactions} 
             products={products} 
+            payments={payments}
             onViewChange={setCurrentView} 
           />
         );
@@ -534,9 +824,13 @@ export default function App() {
           <TransactionsView
             transactions={transactions}
             products={products}
+            payments={payments}
             onAddTransaction={handleAddTransaction}
             onEditTransaction={handleEditTransaction}
             onDeleteTransaction={handleDeleteTransaction}
+            onAddPayment={handleAddPayment}
+            onEditPayment={handleEditPayment}
+            onDeletePayment={handleDeletePayment}
           />
         );
       case 'produk':
@@ -560,6 +854,7 @@ export default function App() {
           <DashboardView 
             transactions={transactions} 
             products={products} 
+            payments={payments}
             onViewChange={setCurrentView} 
           />
         );

@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Receipt, Package, FileText, Database, X, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Receipt, Package, FileText, Database, X } from 'lucide-react';
 import { ViewType } from '../types';
 
 interface SneatSidebarProps {
@@ -52,9 +52,7 @@ export default function SneatSidebar({
         {/* Brand Header */}
         <div className="h-[76px] px-6 flex items-center justify-between border-b border-[#e4e6e8] dark:border-[#43445b]">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary/10 rounded-lg flex items-center justify-center">
-              <BookOpen className="h-6 w-6 text-primary" />
-            </div>
+            <img src="/logo.png" alt="Nota Baru Logo" className="h-9 w-9 rounded-lg object-contain" />
             <div>
               <h1 className="font-sans font-bold text-lg tracking-tight text-slate-800 dark:text-slate-100 flex items-center">
                 Nota<span className="text-primary font-extrabold">Digital</span>

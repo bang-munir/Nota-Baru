@@ -1,369 +1,431 @@
-import React, { useState, useMemo } from 'react';
-import { Transaction, Product, ViewType } from '../types';
-import { formatRupiah, isThisMonth } from '../utils';
-import { 
-  TrendingUp, 
-  Wallet, 
-  AlertCircle, 
-  ArrowUpRight, 
-  Receipt, 
-  Calendar, 
-  Clock, 
-  Layers,
+import React, { useMemo } from 'react';
+import { Transaction, Product, Payment, ViewType } from '../types';
+import { formatRupiah } from '../utils';
+import {
+  Banknote,
+  HandCoins,
+  Scissors,
+  AlertTriangle,
+  TrendingUp,
+  Package,
+  Hash,
+  Clock,
   ArrowRight,
-  Percent
+  ShoppingCart,
+  Layers,
+  Receipt,
+  CheckCircle2,
+  XCircle,
+  RotateCcw,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 
 interface DashboardViewProps {
   transactions: Transaction[];
   products: Product[];
+  payments: Payment[];
   onViewChange: (view: ViewType) => void;
 }
 
 export default function DashboardView({
   transactions,
   products,
-  onViewChange
+  payments,
+  onViewChange,
 }: DashboardViewProps) {
-  const [activeChartTab, setActiveChartTab] = useState<'belanja' | 'hutang'>('belanja');
 
-  // Compute stats
+  // ── KPI Stats ──────────────────────────────────────────────
   const stats = useMemo(() => {
-    let totalBelanja = 0;
-    let sisaHutang = 0;
+    let subtotal = 0;
     let sudahDibayar = 0;
     let totalPotongan = 0;
-    
-    let totalBelanjaBulanIni = 0;
-    let sisaHutangBulanIni = 0;
-    let sudahDibayarBulanIni = 0;
+    let sisaHutang = 0;
 
-    transactions.forEach(t => {
-      // Overall
-      totalBelanja += t.totalBill;
-      sisaHutang += t.debtAmount;
+    transactions.forEach((t) => {
+      subtotal += t.totalProductPrice;
       sudahDibayar += t.paidAmount;
       totalPotongan += t.totalDiscountAmount;
-
-      // This Month (July 2026 based on current system time)
-      if (isThisMonth(t.date)) {
-        totalBelanjaBulanIni += t.totalBill;
-        sisaHutangBulanIni += t.debtAmount;
-        sudahDibayarBulanIni += t.paidAmount;
-      }
+      sisaHutang += t.debtAmount;
     });
 
-    return {
-      totalBelanja,
-      sisaHutang,
-      sudahDibayar,
-      totalPotongan,
-      totalBelanjaBulanIni,
-      sisaHutangBulanIni,
-      sudahDibayarBulanIni
-    };
+    return { subtotal, sudahDibayar, totalPotongan, sisaHutang };
   }, [transactions]);
 
-  // Aggregate monthly data for Chart
-  const monthlyChartData = useMemo(() => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    const currentYear = new Date('2026-07-14').getFullYear();
-    
-    // Initialize months
-    const aggregated = months.map((name, index) => ({
-      name,
-      monthIndex: index,
-      belanja: 0,
-      dibayar: 0,
-      hutang: 0
-    }));
+  // ── Produk Terbanyak ───────────────────────────────────────
+  const topProducts = useMemo(() => {
+    const qtyMap = new Map<string, number>();
 
-    transactions.forEach(t => {
-      const tDate = new Date(t.date);
-      if (tDate.getFullYear() === currentYear) {
-        const mIdx = tDate.getMonth();
-        if (mIdx >= 0 && mIdx < 12) {
-          aggregated[mIdx].belanja += t.totalBill;
-          aggregated[mIdx].dibayar += t.paidAmount;
-          aggregated[mIdx].hutang += t.debtAmount;
-        }
-      }
+    transactions.forEach((t) => {
+      t.items.forEach((item) => {
+        const current = qtyMap.get(item.productName) || 0;
+        qtyMap.set(item.productName, current + item.quantity);
+      });
     });
 
-    // Let's filter to show the last 6 months (up to July) for dense and beautiful presentation
-    return aggregated.slice(2, 8); // March to August
+    const sorted = Array.from(qtyMap.entries())
+      .map(([name, qty]) => ({ name, qty }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+
+    return sorted;
   }, [transactions]);
 
-  // Get maximum value for chart scaling
-  const maxChartValue = useMemo(() => {
-    const maxVal = Math.max(
-      ...monthlyChartData.map(d => Math.max(d.belanja, d.dibayar, d.hutang)),
-      1000000 // default minimum scale floor
-    );
-    return Math.ceil(maxVal / 1000000) * 1000000; // round up to nearest million
-  }, [monthlyChartData]);
+  const totalQtyTerjual = useMemo(() => {
+    return topProducts.reduce((sum, p) => sum + p.qty, 0) ||
+      transactions.reduce((sum, t) => sum + t.items.reduce((s, i) => s + i.quantity, 0), 0);
+  }, [topProducts, transactions]);
 
-  // Latest transactions (limit to 5)
+  // ── Transaksi Terbaru ──────────────────────────────────────
   const latestTransactions = useMemo(() => {
     return [...transactions]
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .slice(0, 5);
   }, [transactions]);
 
+  // ── Ringkasan ──────────────────────────────────────────────
+  const summary = useMemo(() => {
+    const totalTransaksi = transactions.length;
+    const produkTerjual = new Set(
+      transactions.flatMap((t) => t.items.map((i) => i.productId))
+    ).size;
+    const totalQty = transactions.reduce(
+      (sum, t) => sum + t.items.reduce((s, i) => s + i.quantity, 0),
+      0
+    );
+    const belumLunas = transactions.filter((t) => t.debtAmount > 0).length;
+
+    return { totalTransaksi, produkTerjual, totalQty, belumLunas };
+  }, [transactions]);
+
+  // ── Empty state ────────────────────────────────────────────
+  if (transactions.length === 0) {
+    return (
+      <div className="px-4 lg:px-6 py-12">
+        <div className="bg-white rounded-2xl border border-[#e4e6e8] shadow-xs p-12 text-center max-w-md mx-auto">
+          <div className="mx-auto w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
+            <Receipt className="h-7 w-7 text-slate-400" />
+          </div>
+          <h3 className="text-base font-bold text-slate-800 mb-1">Belum ada transaksi</h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Transaksi yang dibuat akan muncul di dashboard.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── KPI Cards Data ─────────────────────────────────────────
+  const kpiCards = [
+    {
+      label: 'Subtotal',
+      value: formatRupiah(stats.subtotal),
+      icon: Banknote,
+      bg: 'bg-blue-50',
+      iconBg: 'bg-blue-100',
+      iconColor: 'text-blue-600',
+      borderColor: 'border-t-blue-500',
+      valueColor: 'text-blue-700',
+    },
+    {
+      label: 'Sudah Dibayar',
+      value: formatRupiah(stats.sudahDibayar),
+      icon: HandCoins,
+      bg: 'bg-emerald-50',
+      iconBg: 'bg-emerald-100',
+      iconColor: 'text-emerald-600',
+      borderColor: 'border-t-emerald-500',
+      valueColor: 'text-emerald-700',
+    },
+    {
+      label: 'Total Potongan',
+      value: formatRupiah(stats.totalPotongan),
+      icon: Scissors,
+      bg: 'bg-amber-50',
+      iconBg: 'bg-amber-100',
+      iconColor: 'text-amber-600',
+      borderColor: 'border-t-amber-500',
+      valueColor: 'text-amber-700',
+    },
+    {
+      label: 'Sisa Hutang',
+      value: formatRupiah(stats.sisaHutang),
+      icon: AlertTriangle,
+      bg: stats.sisaHutang > 0 ? 'bg-rose-50' : 'bg-emerald-50',
+      iconBg: stats.sisaHutang > 0 ? 'bg-rose-100' : 'bg-emerald-100',
+      iconColor: stats.sisaHutang > 0 ? 'text-rose-600' : 'text-emerald-600',
+      borderColor: stats.sisaHutang > 0 ? 'border-t-rose-500' : 'border-t-emerald-500',
+      valueColor: stats.sisaHutang > 0 ? 'text-rose-700' : 'text-emerald-700',
+    },
+  ];
+
   return (
     <div className="px-4 lg:px-6 space-y-6">
-      
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Total Potongan */}
-        <div className="bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs flex items-center gap-4 transition-all">
-          <div className="p-3.5 bg-red-500/10 dark:bg-red-500/20 rounded-xl text-red-500">
-            <Percent className="h-6 w-6" />
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Total Potongan</p>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatRupiah(stats.totalPotongan)}</h3>
-          </div>
-        </div>
 
-        {/* Sudah Dibayar */}
-        <div className="bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs flex items-center gap-4 transition-all">
-          <div className="p-3.5 bg-success/10 dark:bg-success/20 rounded-xl text-success">
-            <Wallet className="h-6 w-6" />
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Sudah Dibayar</p>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatRupiah(stats.sudahDibayar)}</h3>
-          </div>
-        </div>
-
-        {/* Sisa Hutang */}
-        <div className="bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs flex items-center gap-4 transition-all">
-          <div className="p-3.5 bg-warning/10 dark:bg-warning/20 rounded-xl text-warning">
-            <AlertCircle className="h-6 w-6" />
-          </div>
-          <div className="space-y-0.5">
-            <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Sisa Hutang</p>
-            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">{formatRupiah(stats.sisaHutang)}</h3>
-          </div>
-        </div>
-
+      {/* ── Header ──────────────────────────────────────── */}
+      <div>
+        <h2 className="text-lg font-bold text-slate-800 tracking-tight">Dashboard</h2>
+        <p className="text-xs text-slate-400 mt-0.5">Ringkasan kondisi transaksi dan penjualan</p>
       </div>
 
-      {/* Chart Section & List Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
-        {/* Financial Chart SVG */}
-        <div className="lg:col-span-8 bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs flex flex-col">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
-            <div>
-              <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm">Grafik Keuangan Tahun Ini</h4>
-              <p className="text-[11px] text-slate-400">Fluktuasi omzet belanja dan pembayaran bulanan</p>
+      {/* ── KPI Cards ───────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {kpiCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <div
+              key={card.label}
+              className={`${card.bg} rounded-2xl border border-[#e4e6e8] border-t-[3px] ${card.borderColor} shadow-xs p-5 flex flex-col gap-3`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  {card.label}
+                </span>
+                <div className={`p-2 rounded-xl ${card.iconBg} ${card.iconColor}`}>
+                  <Icon className="h-4 w-4" />
+                </div>
+              </div>
+              <p className={`text-xl font-bold tracking-tight ${card.valueColor}`}>{card.value}</p>
             </div>
-            
-            <div className="flex gap-1.5 self-start">
-              <button
-                onClick={() => setActiveChartTab('belanja')}
-                className={`px-3 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
-                  activeChartTab === 'belanja' 
-                    ? 'bg-primary text-white' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                }`}
-              >
-                Terbayar
-              </button>
-              <button
-                onClick={() => setActiveChartTab('hutang')}
-                className={`px-3 py-1 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
-                  activeChartTab === 'hutang' 
-                    ? 'bg-warning/20 text-warning border border-warning/10' 
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
-                }`}
-              >
-                Sisa Hutang
-              </button>
+          );
+        })}
+      </div>
+
+      {/* ── Two Column: Produk Terbanyak + Transaksi Terbaru */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* ── Produk Terbanyak ──────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-[#e4e6e8] border-t-[3px] border-t-blue-500 shadow-xs flex flex-col">
+          <div className="px-5 pt-5 pb-4 border-b border-blue-100 bg-blue-50/50 rounded-t-2xl">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-blue-500 rounded-xl shadow-sm">
+                <TrendingUp className="h-4 w-4 text-white" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-blue-800">Produk Terbanyak</h4>
+                <p className="text-[10px] text-blue-400">Berdasarkan jumlah qty terjual</p>
+              </div>
             </div>
           </div>
 
-          {/* SVG Chart Render */}
-          <div className="h-[240px] w-full relative pt-4 flex items-end">
-            {/* Left Y Axis Labels */}
-            <div className="absolute left-0 top-4 bottom-8 w-12 flex flex-col justify-between text-[10px] text-slate-400 font-mono text-right pr-2">
-              <span>{formatRupiah(maxChartValue)}</span>
-              <span>{formatRupiah(maxChartValue * 0.75)}</span>
-              <span>{formatRupiah(maxChartValue * 0.5)}</span>
-              <span>{formatRupiah(maxChartValue * 0.25)}</span>
-              <span>Rp 0</span>
-            </div>
-
-            {/* Grid & Bars/Lines Container */}
-            <div className="flex-1 ml-12 h-[200px] relative border-b border-slate-200 dark:border-slate-700">
-              
-              {/* Horizontal Gridlines */}
-              <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-                <div className="border-t border-dashed border-slate-100 dark:border-slate-800 w-full" />
-                <div className="border-t border-dashed border-slate-100 dark:border-slate-800 w-full" />
-                <div className="border-t border-dashed border-slate-100 dark:border-slate-800 w-full" />
-                <div className="border-t border-dashed border-slate-100 dark:border-slate-800 w-full" />
-                <div className="w-full" /> {/* Bottom axis line */}
+          <div className="flex-1 p-5">
+            {topProducts.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                Belum ada produk terjual
               </div>
-
-              {/* Data Columns */}
-              <div className="absolute inset-0 flex justify-around items-end px-2">
-                {monthlyChartData.map((d, idx) => {
-                  // Compute heights in percentages
-                  const belanjaPct = Math.min((d.belanja / maxChartValue) * 100, 100);
-                  const dibayarPct = Math.min((d.dibayar / maxChartValue) * 100, 100);
-                  const hutangPct = Math.min((d.hutang / maxChartValue) * 100, 100);
-
+            ) : (
+              <div className="space-y-3">
+                {topProducts.map((product, idx) => {
+                  const maxQty = topProducts[0]?.qty || 1;
+                  const barWidth = (product.qty / maxQty) * 100;
                   return (
-                    <div key={d.name} className="flex flex-col items-center h-full justify-end w-12 group cursor-pointer relative">
-                      
-                      {/* Interactive Tooltip on hover */}
-                      <div className="absolute bottom-[205px] bg-slate-900 text-white rounded-lg p-2.5 shadow-xl border border-slate-800 text-[10px] z-20 w-[140px] hidden group-hover:block transition-all pointer-events-none">
-                        <p className="font-bold border-b border-slate-800 pb-1 mb-1 text-primary">{d.name} 2026</p>
-                        <p className="flex justify-between"><span>Belanja:</span> <span className="font-semibold">{formatRupiah(d.belanja)}</span></p>
-                        <p className="flex justify-between text-success"><span>Terbayar:</span> <span className="font-semibold">{formatRupiah(d.dibayar)}</span></p>
-                        <p className="flex justify-between text-warning"><span>Hutang:</span> <span className="font-semibold">{formatRupiah(d.hutang)}</span></p>
-                      </div>
-
-                      {/* Visual representations (Bars) */}
-                      {activeChartTab === 'belanja' ? (
-                        <div className="flex gap-1.5 items-end h-full w-full justify-center">
-                          {/* Total Belanja Bar */}
-                          <motion.div 
-                            initial={{ height: 0 }}
-                            animate={{ height: `${belanjaPct}%` }}
-                            transition={{ duration: 0.8, delay: idx * 0.05 }}
-                            className="w-4 bg-primary/80 rounded-t-md hover:bg-primary transition-colors relative"
-                          />
-                          {/* Sudah Dibayar Bar */}
-                          <motion.div 
-                            initial={{ height: 0 }}
-                            animate={{ height: `${dibayarPct}%` }}
-                            transition={{ duration: 0.8, delay: idx * 0.05 + 0.1 }}
-                            className="w-4 bg-success/80 rounded-t-md hover:bg-success transition-colors relative"
-                          />
-                        </div>
-                      ) : (
-                        // Sisa Hutang Bar
-                        <div className="flex justify-center h-full w-full items-end">
-                          <motion.div 
-                            initial={{ height: 0 }}
-                            animate={{ height: `${hutangPct}%` }}
-                            transition={{ duration: 0.8, delay: idx * 0.05 }}
-                            className="w-6 bg-warning/80 rounded-t-md hover:bg-warning transition-colors relative"
-                          />
-                        </div>
-                      )}
-
-                      {/* X Axis Label */}
-                      <span className="absolute top-[205px] text-[10px] font-semibold text-slate-500 dark:text-slate-400 mt-1">
-                        {d.name}
+                    <div key={product.name} className="flex items-center gap-3">
+                      <span className="text-[10px] font-bold text-slate-300 w-4 text-right tabular-nums">
+                        {idx + 1}
                       </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-semibold text-slate-700 truncate">
+                            {product.name}
+                          </span>
+                          <span className="text-[11px] font-bold text-slate-500 tabular-nums ml-2 shrink-0">
+                            {product.qty} pcs
+                          </span>
+                        </div>
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-primary/60 rounded-full"
+                            style={{ width: `${barWidth}%` }}
+                          />
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
               </div>
-
-            </div>
+            )}
           </div>
 
-          {/* Chart Legend */}
-          <div className="flex justify-center gap-4 mt-6 text-[10px] font-bold text-slate-500 dark:text-slate-400">
-            {activeChartTab === 'belanja' ? (
-              <>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 bg-primary rounded-xs" />
-                  <span>Total Belanja (Omzet)</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 bg-success rounded-xs" />
-                  <span>Sudah Dibayar (Kas Masuk)</span>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 bg-warning rounded-xs" />
-                <span>Sisa Hutang (Belum Terbayar)</span>
+          {/* Total Qty */}
+          <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/50 rounded-b-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Hash className="h-3.5 w-3.5 text-slate-400" />
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                  Total Qty Terjual
+                </span>
               </div>
-            )}
+              <span className="text-sm font-bold text-slate-800 tabular-nums">
+                {totalQtyTerjual.toLocaleString('id-ID')} pcs
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Latest Transactions Panel */}
-        <div className="lg:col-span-4 bg-white dark:bg-[#232333] p-5 rounded-2xl border border-[#e4e6e8] dark:border-[#43445b] shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
-              <h4 className="font-bold text-slate-800 dark:text-slate-100 text-sm">Transaksi Terbaru</h4>
-              <button 
+        {/* ── Transaksi Terbaru ─────────────────────────── */}
+        <div className="bg-white rounded-2xl border border-[#e4e6e8] border-t-[3px] border-t-emerald-500 shadow-xs flex flex-col">
+          <div className="px-5 pt-5 pb-4 border-b border-emerald-100 bg-emerald-50/50 rounded-t-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-500 rounded-xl shadow-sm">
+                  <Clock className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-emerald-800">Transaksi Terbaru</h4>
+                  <p className="text-[10px] text-emerald-400">5 transaksi terakhir</p>
+                </div>
+              </div>
+              <button
                 onClick={() => onViewChange('transaksi')}
-                className="text-[10px] text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                className="text-[10px] text-emerald-600 font-bold hover:underline flex items-center gap-1 cursor-pointer"
               >
                 <span>Lihat Semua</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </button>
             </div>
+          </div>
 
-            {/* Transaction Compact List */}
-            <div className="space-y-3">
-              {latestTransactions.map((t) => (
-                <div 
-                  key={t.id}
-                  className="flex items-center justify-between p-2.5 rounded-lg border border-slate-50 dark:border-[#2b2c40] bg-slate-50/50 dark:bg-[#202030]/50 hover:border-slate-200 dark:hover:border-slate-700 transition-all"
-                >
-                  <div className="min-w-0 flex-1 pr-2">
-                    <p className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                      {t.customerName}
-                    </p>
-                    <p className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-1">
-                      <Calendar className="h-3 w-3 text-slate-300" />
-                      <span>{t.date}</span>
-                      <span>•</span>
-                      <span className="font-semibold text-slate-500">{t.productName} ({t.quantity}x)</span>
-                    </p>
-                  </div>
-                  
-                  <div className="text-right flex flex-col items-end gap-1 shrink-0">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      {formatRupiah(t.totalBill)}
-                    </span>
-                    {t.debtAmount === 0 ? (
-                      <span className="px-1.5 py-0.5 bg-success-light text-success font-bold text-[9px] rounded-xs uppercase">
-                        Lunas
-                      </span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 bg-warning/15 text-warning font-bold text-[9px] rounded-xs uppercase">
-                        Hutang {formatRupiah(t.debtAmount)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
+          <div className="flex-1 p-5">
+            {latestTransactions.length === 0 ? (
+              <div className="py-8 text-center text-slate-400 text-xs">
+                Belum ada transaksi
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {latestTransactions.map((t) => {
+                  const isLunas = t.debtAmount === 0;
+                  const dateObj = new Date(t.date);
+                  const day = dateObj.getDate();
+                  const monthNames = [
+                    'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+                    'Jul', 'Agu', 'Sep', 'Okt', 'Nop', 'Des',
+                  ];
+                  const monthLabel = monthNames[dateObj.getMonth()];
+                  const year = dateObj.getFullYear();
 
-              {latestTransactions.length === 0 && (
-                <div className="py-8 text-center text-slate-400 text-xs">
-                  Belum ada transaksi terdaftar.
-                </div>
-              )}
+                  // Get customer name from first item or fallback
+                  const customerName = t.items[0]?.productName || 'Pelanggan';
+
+                  return (
+                    <div
+                      key={t.id}
+                      className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 bg-slate-50/50 hover:border-slate-200 transition-all"
+                    >
+                      {/* Date badge */}
+                      <div className="w-11 h-11 rounded-xl bg-slate-100 flex flex-col items-center justify-center shrink-0">
+                        <span className="text-[10px] font-bold text-primary leading-none">{day}</span>
+                        <span className="text-[8px] font-semibold text-slate-400 leading-none mt-0.5">
+                          {monthLabel}
+                        </span>
+                      </div>
+
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-800 truncate">
+                          {t.items.map((i) => i.productName).join(', ')}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] text-slate-400">{t.id}</span>
+                          <span className="text-[10px] text-slate-300">•</span>
+                          <span className="text-[10px] text-slate-400">
+                            {t.items.reduce((s, i) => s + i.quantity, 0)} item
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Amount & Status */}
+                      <div className="text-right shrink-0">
+                        <p className="text-xs font-bold text-slate-800 tabular-nums">
+                          {formatRupiah(t.totalBill)}
+                        </p>
+                        <div className="mt-1 flex items-center justify-end gap-1">
+                          {isLunas ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 text-emerald-600 text-[9px] font-bold rounded-md">
+                              <CheckCircle2 className="h-2.5 w-2.5" />
+                              LUNAS
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-rose-50 text-rose-600 text-[9px] font-bold rounded-md">
+                              <XCircle className="h-2.5 w-2.5" />
+                              HUTANG
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Ringkasan ───────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-[#e4e6e8] border-t-[3px] border-t-violet-500 shadow-xs p-5">
+        <div className="flex items-center gap-2 mb-4 pb-4 border-b border-violet-100">
+          <div className="p-2 bg-violet-500 rounded-xl shadow-sm">
+            <Layers className="h-4 w-4 text-white" />
+          </div>
+          <h4 className="text-sm font-bold text-violet-800">Ringkasan</h4>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-xl border border-blue-100">
+            <div className="p-2 bg-blue-500 rounded-lg shadow-sm">
+              <Receipt className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-blue-600 uppercase tracking-wider">
+                Total Transaksi
+              </p>
+              <p className="text-base font-bold text-blue-700 tabular-nums">
+                {summary.totalTransaksi}
+              </p>
             </div>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-              <div className="flex items-center gap-1.5">
-                <Clock className="h-4 w-4 text-slate-400" />
-                <span>Terakhir diperbarui:</span>
-              </div>
-              <span className="font-bold text-slate-700 dark:text-slate-200">Hari ini</span>
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-br from-violet-50 to-violet-100/50 rounded-xl border border-violet-100">
+            <div className="p-2 bg-violet-500 rounded-lg shadow-sm">
+              <Package className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-violet-600 uppercase tracking-wider">
+                Produk Terjual
+              </p>
+              <p className="text-base font-bold text-violet-700 tabular-nums">
+                {summary.produkTerjual}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-xl border border-emerald-100">
+            <div className="p-2 bg-emerald-500 rounded-lg shadow-sm">
+              <ShoppingCart className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider">
+                Total Qty
+              </p>
+              <p className="text-base font-bold text-emerald-700 tabular-nums">
+                {summary.totalQty.toLocaleString('id-ID')}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 p-4 bg-gradient-to-br from-rose-50 to-rose-100/50 rounded-xl border border-rose-100">
+            <div className="p-2 bg-rose-500 rounded-lg shadow-sm">
+              <AlertTriangle className="h-4 w-4 text-white" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-rose-600 uppercase tracking-wider">
+                Belum Lunas
+              </p>
+              <p className="text-base font-bold text-rose-700 tabular-nums">
+                {summary.belumLunas}
+              </p>
             </div>
           </div>
         </div>
-
       </div>
-
     </div>
   );
 }
