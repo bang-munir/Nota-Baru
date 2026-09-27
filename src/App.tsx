@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Product, Transaction, Discount, Payment, ViewType, ThemeType } from './types';
-import { INITIAL_PRODUCTS, INITIAL_TRANSACTIONS } from './data/mockData.ts';
-import { insforge } from './lib/insforge.ts';
+import { Product, Transaction, Payment, ViewType, ThemeType } from './types';
+import { api, PaymentInput } from './lib/api.ts';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 
@@ -13,6 +12,50 @@ import DashboardView from './components/DashboardView';
 import TransactionsView from './components/TransactionsView';
 import ProductsView from './components/ProductsView';
 import ReportsView from './components/ReportsView';
+
+const CUSTOMER_NAME = 'Pelanggan Umum';
+
+const errorText = (err: unknown): string =>
+  err instanceof Error ? err.message : 'Terjadi kesalahan yang tidak diketahui.';
+
+const paymentsTotal = (list: Payment[]): number =>
+  list.reduce((sum, payment) => sum + payment.amount, 0);
+
+function toPaymentInput(payment: Payment): PaymentInput {
+  return {
+    id: payment.id,
+    amount: payment.amount,
+    paymentDate: payment.paymentDate,
+    note: payment.note ?? null,
+  };
+}
+
+function reconcilePayments(current: Payment[], targetPaid: number, fallbackDate: string): PaymentInput[] {
+  const total = paymentsTotal(current);
+  if (targetPaid === total) return current.map(toPaymentInput);
+  if (targetPaid > total) {
+    return [
+      ...current.map(toPaymentInput),
+      { amount: targetPaid - total, paymentDate: fallbackDate, note: null },
+    ];
+  }
+
+  let excess = total - targetPaid;
+  const kept: PaymentInput[] = [];
+  const newestFirst = [...current].sort(
+    (a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+  );
+  for (const payment of newestFirst) {
+    if (excess <= 0) {
+      kept.push(toPaymentInput(payment));
+      continue;
+    }
+    const amount = payment.amount - excess;
+    excess = Math.max(0, excess - payment.amount);
+    if (amount > 0) kept.push({ ...toPaymentInput(payment), amount });
+  }
+  return kept.reverse();
+}
 
 export default function App() {
   // --- STATE ---
@@ -26,7 +69,6 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [usingLocalFallback, setUsingLocalFallback] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'danger' | 'info' | 'warning' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'danger' | 'info' | 'warning' = 'info') => {
@@ -50,137 +92,15 @@ export default function App() {
     }
   }, [toast]);
 
-  // --- MAP DATABASE DATA TO LOCAL MODELS ---
-  const mapDBTransactionToLocal = (t: any): Transaction => {
-    const paidAmount = Number(t.paid_amount || 0);
-    
-    const discounts: Discount[] = (t.discounts || []).map((d: any) => ({
-      id: d.id,
-      description: d.description,
-      amount: Number(d.amount || 0)
-    }));
-
-    // Parse items from DB - support serialized multiple items in product_name_snapshot
-    let items = [];
-    if (t.product_name_snapshot && t.product_name_snapshot.trim().startsWith('[') && t.product_name_snapshot.trim().endsWith(']')) {
-      try {
-        items = JSON.parse(t.product_name_snapshot);
-      } catch (e) {
-        console.warn('Failed to parse multiple items from snapshot, using fallback:', e);
-        if (t.product_id) {
-          items = [{
-            productId: t.product_id,
-            productName: t.product_name_snapshot || '',
-            quantity: Number(t.quantity || 0),
-            priceAtSale: Number(t.price_at_sale || 0)
-          }];
-        }
-      }
-    } else if (t.product_id) {
-      items = [{
-        productId: t.product_id,
-        productName: t.product_name_snapshot || '',
-        quantity: Number(t.quantity || 0),
-        priceAtSale: Number(t.price_at_sale || 0)
-      }];
-    }
-
-    const totalProductPrice = items.reduce((sum, item) => sum + (item.quantity * item.priceAtSale), 0);
-    const totalDiscountAmount = discounts.reduce((sum, d) => sum + d.amount, 0);
-    const totalBill = Math.max(totalProductPrice - totalDiscountAmount, 0);
-    const debtAmount = Math.max(totalBill - paidAmount, 0);
-
-    let dateStr = t.date || '';
-    if (dateStr && dateStr.includes('T')) {
-      dateStr = dateStr.split('T')[0];
-    }
-
-    return {
-      id: t.id,
-      date: dateStr,
-      items,
-      discounts,
-      paidAmount,
-      totalProductPrice,
-      totalDiscountAmount,
-      totalBill,
-      debtAmount
-    };
-  };
-
-  // --- LOCAL STORAGE FALLBACK LOADER ---
-  const loadLocalFallback = () => {
-    try {
-      const storedProds = window.localStorage.getItem('notadigital_products');
-      const storedTrans = window.localStorage.getItem('notadigital_transactions');
-      
-      let localProds: Product[] = [];
-      let localTrans: Transaction[] = [];
-
-      if (storedProds) {
-        localProds = JSON.parse(storedProds);
-      } else {
-        localProds = INITIAL_PRODUCTS;
-        try {
-          window.localStorage.setItem('notadigital_products', JSON.stringify(INITIAL_PRODUCTS));
-        } catch (e) { console.warn(e); }
-      }
-
-      if (storedTrans) {
-        localTrans = JSON.parse(storedTrans);
-      } else {
-        localTrans = INITIAL_TRANSACTIONS;
-        try {
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(INITIAL_TRANSACTIONS));
-        } catch (e) { console.warn(e); }
-      }
-
-      setProducts(localProds);
-      setTransactions(localTrans);
-      setUsingLocalFallback(true);
-      setErrorMsg(null);
-    } catch (err) {
-      console.error('Failed to load local fallback:', err);
-      setProducts(INITIAL_PRODUCTS);
-      setTransactions(INITIAL_TRANSACTIONS);
-      setUsingLocalFallback(true);
-      setErrorMsg(null);
-    }
-  };
-
-  // --- PAYMENTS STORAGE ---
-  const STORAGE_KEY_PAYMENTS = 'notadigital_payments';
-
-  const loadPayments = (): Payment[] => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY_PAYMENTS);
-      if (stored) {
-        return JSON.parse(stored);
-      }
-    } catch (e) {
-      console.warn('Failed to load payments from localStorage:', e);
-    }
-    return [];
-  };
-
-  const savePayments = (newPayments: Payment[]) => {
-    try {
-      window.localStorage.setItem(STORAGE_KEY_PAYMENTS, JSON.stringify(newPayments));
-    } catch (e) {
-      console.warn('Failed to save payments to localStorage:', e);
-    }
-  };
-
+  // --- PAYMENT HANDLERS ---
   const handleAddPayment = async (transactionId: string, amount: number) => {
     try {
-      // Find the transaction
       const transaction = transactions.find(t => t.id === transactionId);
       if (!transaction) {
         showToast('Transaksi tidak ditemukan', 'danger');
         return;
       }
 
-      // Validate amount
       if (amount <= 0) {
         showToast('Nominal pembayaran harus lebih dari Rp 0', 'danger');
         return;
@@ -191,218 +111,98 @@ export default function App() {
         return;
       }
 
-      // Create new payment
-      const newPayment: Payment = {
-        id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      await api.payments.create({
         transactionId,
         amount,
         paymentDate: new Date().toISOString(),
-      };
-
-      // Update payments list
-      const updatedPayments = [...payments, newPayment];
-      setPayments(updatedPayments);
-      savePayments(updatedPayments);
-
-      // Calculate new total paid
-      const totalPaid = updatedPayments
-        .filter(p => p.transactionId === transactionId)
-        .reduce((sum, p) => sum + p.amount, 0);
-
-      // Update transaction in InsForge
-      const { error } = await insforge.database
-        .from('transactions')
-        .update({ paid_amount: totalPaid })
-        .eq('id', transactionId);
-
-      if (error) throw error;
-
-      // Update local state
-      const updatedTransactions = transactions.map(t => {
-        if (t.id === transactionId) {
-          const newPaidAmount = totalPaid;
-          const newDebtAmount = Math.max(t.totalBill - newPaidAmount, 0);
-          return {
-            ...t,
-            paidAmount: newPaidAmount,
-            debtAmount: newDebtAmount,
-          };
-        }
-        return t;
       });
-      setTransactions(updatedTransactions);
+      await loadData();
 
-      // Save to localStorage if using local fallback
-      if (usingLocalFallback) {
-        try {
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
-        } catch (e) { console.warn(e); }
-      }
-
-      // Show success message
-      const newDebt = Math.max(transaction.totalBill - totalPaid, 0);
+      const newDebt = Math.max(transaction.totalBill - (transaction.paidAmount + amount), 0);
       if (newDebt === 0) {
-        showToast(`Pembayaran berhasil. Transaksi sekarang LUNAS.`, 'success');
+        showToast('Pembayaran berhasil. Transaksi sekarang LUNAS.', 'success');
       } else {
         showToast(`Pembayaran ${formatRupiahLocal(amount)} berhasil dicatat.`, 'success');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Payment error:', err);
-      showToast('Gagal mencatat pembayaran: ' + err.message, 'danger');
+      showToast('Gagal mencatat pembayaran: ' + errorText(err), 'danger');
     }
   };
 
   const handleEditPayment = async (paymentId: string, newAmount: number, newDate: string) => {
     try {
-      // Find the payment
       const payment = payments.find(p => p.id === paymentId);
       if (!payment) {
         showToast('Pembayaran tidak ditemukan', 'danger');
         return;
       }
 
-      // Validate amount
       if (newAmount <= 0) {
         showToast('Nominal pembayaran harus lebih dari Rp 0', 'danger');
         return;
       }
 
-      // Find the transaction
       const transaction = transactions.find(t => t.id === payment.transactionId);
       if (!transaction) {
         showToast('Transaksi tidak ditemukan', 'danger');
         return;
       }
 
-      // Calculate total of OTHER payments (excluding this one)
-      const otherPaymentsTotal = payments
-        .filter(p => p.transactionId === payment.transactionId && p.id !== paymentId)
-        .reduce((sum, p) => sum + p.amount, 0);
+      const otherPaymentsTotal = paymentsTotal(
+        payments.filter(p => p.transactionId === payment.transactionId && p.id !== paymentId)
+      );
 
-      // Check if new total would exceed total bill
       const newTotalPaid = otherPaymentsTotal + newAmount;
       if (newTotalPaid > transaction.totalBill) {
         showToast('Total pembayaran melebihi sisa tagihan. Periksa kembali nominal pembayaran.', 'danger');
         return;
       }
 
-      // Update payment in list
-      const updatedPayments = payments.map(p => {
-        if (p.id === paymentId) {
-          return { ...p, amount: newAmount, paymentDate: newDate };
-        }
-        return p;
-      });
-      setPayments(updatedPayments);
-      savePayments(updatedPayments);
+      await api.payments.update(paymentId, { amount: newAmount, paymentDate: newDate });
+      await loadData();
 
-      // Update transaction in InsForge
-      const { error } = await insforge.database
-        .from('transactions')
-        .update({ paid_amount: newTotalPaid })
-        .eq('id', payment.transactionId);
-
-      if (error) throw error;
-
-      // Update local state
-      const updatedTransactions = transactions.map(t => {
-        if (t.id === payment.transactionId) {
-          const newDebtAmount = Math.max(t.totalBill - newTotalPaid, 0);
-          return {
-            ...t,
-            paidAmount: newTotalPaid,
-            debtAmount: newDebtAmount,
-          };
-        }
-        return t;
-      });
-      setTransactions(updatedTransactions);
-
-      // Save to localStorage if using local fallback
-      if (usingLocalFallback) {
-        try {
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
-        } catch (e) { console.warn(e); }
-      }
-
-      // Show success message
       const newDebt = Math.max(transaction.totalBill - newTotalPaid, 0);
       if (newDebt === 0) {
         showToast('Pembayaran berhasil diperbarui. Transaksi sekarang LUNAS.', 'success');
       } else {
         showToast(`Pembayaran berhasil diperbarui. Sisa hutang: ${formatRupiahLocal(newDebt)}`, 'success');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Edit payment error:', err);
-      showToast('Gagal memperbarui pembayaran: ' + err.message, 'danger');
+      showToast('Gagal memperbarui pembayaran: ' + errorText(err), 'danger');
     }
   };
 
   const handleDeletePayment = async (paymentId: string) => {
     try {
-      // Find the payment
       const payment = payments.find(p => p.id === paymentId);
       if (!payment) {
         showToast('Pembayaran tidak ditemukan', 'danger');
         return;
       }
 
-      // Find the transaction
       const transaction = transactions.find(t => t.id === payment.transactionId);
       if (!transaction) {
         showToast('Transaksi tidak ditemukan', 'danger');
         return;
       }
 
-      // Remove payment from list
-      const updatedPayments = payments.filter(p => p.id !== paymentId);
-      setPayments(updatedPayments);
-      savePayments(updatedPayments);
+      await api.payments.remove(paymentId);
+      await loadData();
 
-      // Calculate new total paid
-      const newTotalPaid = updatedPayments
-        .filter(p => p.transactionId === payment.transactionId)
-        .reduce((sum, p) => sum + p.amount, 0);
-
-      // Update transaction in InsForge
-      const { error } = await insforge.database
-        .from('transactions')
-        .update({ paid_amount: newTotalPaid })
-        .eq('id', payment.transactionId);
-
-      if (error) throw error;
-
-      // Update local state
-      const updatedTransactions = transactions.map(t => {
-        if (t.id === payment.transactionId) {
-          const newDebtAmount = Math.max(t.totalBill - newTotalPaid, 0);
-          return {
-            ...t,
-            paidAmount: newTotalPaid,
-            debtAmount: newDebtAmount,
-          };
-        }
-        return t;
-      });
-      setTransactions(updatedTransactions);
-
-      // Save to localStorage if using local fallback
-      if (usingLocalFallback) {
-        try {
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
-        } catch (e) { console.warn(e); }
-      }
-
-      // Show success message
-      const newDebt = Math.max(transaction.totalBill - newTotalPaid, 0);
+      const remainingPaid = paymentsTotal(
+        payments.filter(p => p.transactionId === payment.transactionId && p.id !== paymentId)
+      );
+      const newDebt = Math.max(transaction.totalBill - remainingPaid, 0);
       if (newDebt === 0) {
         showToast('Pembayaran berhasil dihapus. Transaksi tetap LUNAS.', 'success');
       } else {
         showToast(`Pembayaran berhasil dihapus. Sisa hutang: ${formatRupiahLocal(newDebt)}`, 'success');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Delete payment error:', err);
-      showToast('Gagal menghapus pembayaran: ' + err.message, 'danger');
+      showToast('Gagal menghapus pembayaran: ' + errorText(err), 'danger');
     }
   };
 
@@ -421,48 +221,17 @@ export default function App() {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      // 1. Fetch products
-      const { data: dbProducts, error: prodError } = await insforge.database
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: true });
+      const [loadedProducts, transactionData] = await Promise.all([
+        api.products.list(),
+        api.transactions.list(),
+      ]);
 
-      if (prodError) throw prodError;
-
-      // 2. Fetch transactions with their nested discounts
-      const { data: dbTransactions, error: transError } = await insforge.database
-        .from('transactions')
-        .select('*, discounts(*)')
-        .order('created_at', { ascending: false });
-
-      if (transError) throw transError;
-
-      setProducts(dbProducts || []);
-      setTransactions((dbTransactions || []).map(mapDBTransactionToLocal));
-      setUsingLocalFallback(false);
-
-      // 3. Load payments from localStorage
-      const storedPayments = loadPayments();
-      setPayments(storedPayments);
-
-      // 4. Sync paidAmount from payments to transactions
-      const syncedTransactions = (dbTransactions || []).map((dbTrans: any) => {
-        const local = mapDBTransactionToLocal(dbTrans);
-        const transPayments = storedPayments.filter(p => p.transactionId === local.id);
-        if (transPayments.length > 0) {
-          const totalPaid = transPayments.reduce((sum, p) => sum + p.amount, 0);
-          return {
-            ...local,
-            paidAmount: totalPaid,
-            debtAmount: Math.max(local.totalBill - totalPaid, 0),
-          };
-        }
-        return local;
-      });
-      setTransactions(syncedTransactions);
-    } catch (err: any) {
-      console.warn('Failed to load data from InsForge database. Gracefully falling back to local storage...', err);
-      loadLocalFallback();
+      setProducts(loadedProducts);
+      setTransactions(transactionData.transactions);
+      setPayments(transactionData.payments);
+    } catch (err) {
+      console.error('Failed to load data from API:', err);
+      setErrorMsg(errorText(err));
     } finally {
       setIsLoading(false);
     }
@@ -470,7 +239,6 @@ export default function App() {
 
   // --- INITIALIZATION ---
   useEffect(() => {
-    // Initial fetch from InsForge
     loadData();
 
     // Ensure dark mode class is completely removed from the document root
@@ -488,322 +256,92 @@ export default function App() {
   // --- CRUD PRODUCT HANDLERS ---
   const handleAddProduct = async (newProd: Omit<Product, 'id'>) => {
     try {
-      const freshId = `p-${Date.now()}`;
-      
-      if (usingLocalFallback) {
-        const updatedProducts = [...products, { id: freshId, name: newProd.name, price: newProd.price }];
-        setProducts(updatedProducts);
-        try {
-          window.localStorage.setItem('notadigital_products', JSON.stringify(updatedProducts));
-        } catch (e) { console.warn(e); }
-        showToast('Produk berhasil ditambahkan (Lokal)', 'success');
-        return;
-      }
-
-      const { error } = await insforge.database
-        .from('products')
-        .insert([{
-          id: freshId,
-          name: newProd.name,
-          price: newProd.price
-        }]);
-
-      if (error) throw error;
+      await api.products.create({
+        id: `p-${Date.now()}`,
+        name: newProd.name,
+        price: newProd.price,
+      });
       await loadData();
       showToast('Produk berhasil ditambahkan', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      showToast('Gagal menambah produk: ' + err.message, 'danger');
+      showToast('Gagal menambah produk: ' + errorText(err), 'danger');
     }
   };
 
   const handleEditProduct = async (editedProd: Product) => {
     try {
-      if (usingLocalFallback) {
-        const updatedProducts = products.map(p => p.id === editedProd.id ? editedProd : p);
-        const updatedTransactions = transactions.map(t => ({
-          ...t,
-          items: t.items.map(item => 
-            item.productId === editedProd.id 
-              ? { ...item, productName: editedProd.name } 
-              : item
-          )
-        }));
-        setProducts(updatedProducts);
-        setTransactions(updatedTransactions);
-        try {
-          window.localStorage.setItem('notadigital_products', JSON.stringify(updatedProducts));
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
-        } catch (e) { console.warn(e); }
-        showToast('Produk berhasil diperbarui (Lokal)', 'success');
-        return;
-      }
-
-      // 1. Update product
-      const { error } = await insforge.database
-        .from('products')
-        .update({
-          name: editedProd.name,
-          price: editedProd.price
-        })
-        .eq('id', editedProd.id);
-
-      if (error) throw error;
-
-      // 2. Sync product name snapshot in transactions
-      const { data: affectedTrans, error: fetchError } = await insforge.database
-        .from('transactions')
-        .select('id')
-        .eq('product_id', editedProd.id);
-         
-      if (!fetchError && affectedTrans && affectedTrans.length > 0) {
-        for (const t of affectedTrans) {
-          await insforge.database
-            .from('transactions')
-            .update({
-              product_name_snapshot: editedProd.name
-            })
-            .eq('id', t.id);
-        }
-      }
-
+      await api.products.update(editedProd.id, {
+        name: editedProd.name,
+        price: editedProd.price,
+      });
       await loadData();
       showToast('Produk berhasil diperbarui', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      showToast('Gagal memperbarui produk: ' + err.message, 'danger');
+      showToast('Gagal memperbarui produk: ' + errorText(err), 'danger');
     }
   };
 
   const handleDeleteProduct = async (id: string) => {
     try {
-      if (usingLocalFallback) {
-        const updatedProducts = products.filter(p => p.id !== id);
-        setProducts(updatedProducts);
-        try {
-          window.localStorage.setItem('notadigital_products', JSON.stringify(updatedProducts));
-        } catch (e) { console.warn(e); }
-        showToast('Produk berhasil dihapus (Lokal)', 'success');
-        return;
-      }
-
-      const { error } = await insforge.database
-        .from('products')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
+      await api.products.remove(id);
       await loadData();
       showToast('Produk berhasil dihapus', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      showToast('Gagal menghapus produk: ' + err.message, 'danger');
+      showToast('Gagal menghapus produk: ' + errorText(err), 'danger');
     }
   };
 
   // --- CRUD TRANSACTION HANDLERS ---
   const handleAddTransaction = async (newTrans: Omit<Transaction, 'id' | 'totalProductPrice' | 'totalDiscountAmount' | 'totalBill' | 'debtAmount'>) => {
     try {
-      const freshTransId = `tr-${Math.floor(100 + Math.random() * 900)}`;
+      const paid = Number(newTrans.paidAmount || 0);
 
-      if (usingLocalFallback) {
-        const paidAmount = Number(newTrans.paidAmount || 0);
-        const discounts = newTrans.discounts || [];
-        
-        const totalProductPrice = newTrans.items.reduce((sum, item) => sum + (item.quantity * item.priceAtSale), 0);
-        const totalDiscountAmount = discounts.reduce((sum, d) => sum + d.amount, 0);
-        const totalBill = Math.max(totalProductPrice - totalDiscountAmount, 0);
-        const debtAmount = Math.max(totalBill - paidAmount, 0);
-
-        const newTransObject: Transaction = {
-          id: freshTransId,
-          date: newTrans.date,
-          items: newTrans.items,
-          discounts,
-          paidAmount,
-          totalProductPrice,
-          totalDiscountAmount,
-          totalBill,
-          debtAmount
-        };
-
-        const updatedTransactions = [newTransObject, ...transactions];
-        setTransactions(updatedTransactions);
-        try {
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
-        } catch (e) { console.warn(e); }
-        showToast('Transaksi berhasil ditambahkan (Lokal)', 'success');
-        return;
-      }
-
-      // 1. Insert transaction
-      let productId = '';
-      let productNameSnapshot = '';
-      let quantity = 0;
-      let priceAtSale = 0;
-
-      if (newTrans.items.length === 1) {
-        const item = newTrans.items[0];
-        productId = item.productId;
-        productNameSnapshot = item.productName;
-        quantity = item.quantity;
-        priceAtSale = item.priceAtSale;
-      } else if (newTrans.items.length > 1) {
-        productId = newTrans.items[0]?.productId || 'p-1';
-        productNameSnapshot = JSON.stringify(newTrans.items);
-        quantity = newTrans.items.reduce((sum, item) => sum + item.quantity, 0);
-        priceAtSale = 0;
-      }
-
-      const { error: transError } = await insforge.database
-        .from('transactions')
-        .insert([{
-          id: freshTransId,
-          customer_name: 'Pelanggan Umum',
-          date: newTrans.date,
-          product_id: productId,
-          product_name_snapshot: productNameSnapshot,
-          quantity: quantity,
-          price_at_sale: priceAtSale,
-          paid_amount: newTrans.paidAmount
-        }]);
-
-      if (transError) throw transError;
-
-      // 2. Insert discounts if any
-      if (newTrans.discounts && newTrans.discounts.length > 0) {
-        const discountsToInsert = newTrans.discounts.map(d => ({
-          id: d.id || `d-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          transaction_id: freshTransId,
-          description: d.description,
-          amount: d.amount
-        }));
-
-        const { error: discError } = await insforge.database
-          .from('discounts')
-          .insert(discountsToInsert);
-
-        if (discError) throw discError;
-      }
+      await api.transactions.create({
+        date: newTrans.date,
+        customerName: CUSTOMER_NAME,
+        items: newTrans.items,
+        discounts: newTrans.discounts.map(d => ({ description: d.description, amount: d.amount })),
+        payments: paid > 0 ? [{ amount: paid, paymentDate: newTrans.date, note: null }] : [],
+      });
 
       await loadData();
       showToast('Transaksi berhasil ditambahkan', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      showToast('Gagal menambah transaksi: ' + err.message, 'danger');
+      showToast('Gagal menambah transaksi: ' + errorText(err), 'danger');
     }
   };
 
   const handleEditTransaction = async (editedTrans: Transaction) => {
     try {
-      if (usingLocalFallback) {
-        const updatedTransactions = transactions.map(t => t.id === editedTrans.id ? editedTrans : t);
-        setTransactions(updatedTransactions);
-        try {
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
-        } catch (e) { console.warn(e); }
-        showToast('Transaksi berhasil diperbarui (Lokal)', 'success');
-        return;
-      }
+      const existingPayments = payments.filter(p => p.transactionId === editedTrans.id);
 
-      // 1. Update transaction
-      let productId = '';
-      let productNameSnapshot = '';
-      let quantity = 0;
-      let priceAtSale = 0;
-
-      if (editedTrans.items.length === 1) {
-        const item = editedTrans.items[0];
-        productId = item.productId;
-        productNameSnapshot = item.productName;
-        quantity = item.quantity;
-        priceAtSale = item.priceAtSale;
-      } else if (editedTrans.items.length > 1) {
-        productId = editedTrans.items[0]?.productId || 'p-1';
-        productNameSnapshot = JSON.stringify(editedTrans.items);
-        quantity = editedTrans.items.reduce((sum, item) => sum + item.quantity, 0);
-        priceAtSale = 0;
-      }
-
-      const { error: transError } = await insforge.database
-        .from('transactions')
-        .update({
-          date: editedTrans.date,
-          product_id: productId,
-          product_name_snapshot: productNameSnapshot,
-          quantity: quantity,
-          price_at_sale: priceAtSale,
-          paid_amount: editedTrans.paidAmount
-        })
-        .eq('id', editedTrans.id);
-
-      if (transError) throw transError;
-
-      // 2. Delete old discounts
-      const { error: delError } = await insforge.database
-        .from('discounts')
-        .delete()
-        .eq('transaction_id', editedTrans.id);
-
-      if (delError) throw delError;
-
-      // 3. Insert new discounts
-      if (editedTrans.discounts && editedTrans.discounts.length > 0) {
-        const discountsToInsert = editedTrans.discounts.map(d => ({
-          id: d.id.startsWith('temp-') || d.id === '' ? `d-${Date.now()}-${Math.floor(Math.random() * 1000)}` : d.id,
-          transaction_id: editedTrans.id,
-          description: d.description,
-          amount: d.amount
-        }));
-
-        const { error: discError } = await insforge.database
-          .from('discounts')
-          .insert(discountsToInsert);
-
-        if (discError) throw discError;
-      }
+      await api.transactions.update(editedTrans.id, {
+        date: editedTrans.date,
+        items: editedTrans.items,
+        discounts: editedTrans.discounts.map(d => ({ description: d.description, amount: d.amount })),
+        payments: reconcilePayments(existingPayments, Number(editedTrans.paidAmount || 0), editedTrans.date),
+      });
 
       await loadData();
       showToast('Transaksi berhasil diperbarui', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      showToast('Gagal memperbarui transaksi: ' + err.message, 'danger');
+      showToast('Gagal memperbarui transaksi: ' + errorText(err), 'danger');
     }
   };
 
   const handleDeleteTransaction = async (id: string) => {
     try {
-      if (usingLocalFallback) {
-        const updatedTransactions = transactions.filter(t => t.id !== id);
-        setTransactions(updatedTransactions);
-        try {
-          window.localStorage.setItem('notadigital_transactions', JSON.stringify(updatedTransactions));
-        } catch (e) { console.warn(e); }
-        showToast('Transaksi berhasil dihapus (Lokal)', 'success');
-        return;
-      }
-
-      // 1. Delete discounts
-      const { error: discError } = await insforge.database
-        .from('discounts')
-        .delete()
-        .eq('transaction_id', id);
-
-      if (discError) throw discError;
-
-      // 2. Delete transaction
-      const { error: transError } = await insforge.database
-        .from('transactions')
-        .delete()
-        .eq('id', id);
-
-      if (transError) throw transError;
-
+      await api.transactions.remove(id);
       await loadData();
       showToast('Transaksi berhasil dihapus', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      showToast('Gagal menghapus transaksi: ' + err.message, 'danger');
+      showToast('Gagal menghapus transaksi: ' + errorText(err), 'danger');
     }
   };
 
@@ -879,7 +417,7 @@ export default function App() {
           onViewChange={setCurrentView}
           isOpenMobile={isOpenMobileSidebar}
           onCloseMobile={() => setIsOpenMobileSidebar(false)}
-          isOffline={usingLocalFallback}
+          isOffline={false}
         />
       </div>
 
@@ -904,7 +442,7 @@ export default function App() {
                 <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin"></div>
               </div>
               <p className="mt-4 text-xs font-semibold text-slate-400 dark:text-slate-500 animate-pulse">
-                Menghubungkan ke database InsForge...
+                Menghubungkan ke database...
               </p>
             </div>
           ) : errorMsg ? (

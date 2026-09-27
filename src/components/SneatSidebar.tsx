@@ -109,7 +109,7 @@ export default function SneatSidebar({
                 {isOffline ? 'Local Mode Active' : 'Cloud Sync Active'}
               </p>
               <p className="text-[10px] text-slate-400">
-                {isOffline ? 'Data tersimpan di browser' : 'Database InsForge sinkron'}
+                {isOffline ? 'Data tersimpan di browser' : 'Database Neon sinkron'}
               </p>
             </div>
           </div>
