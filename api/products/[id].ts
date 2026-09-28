@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm';
-import { db } from '../../src/db/index.ts';
-import { products } from '../../src/db/schema.ts';
-import { ApiError, dbErrorCode, json, noContent, respondError } from '../_lib/errors.ts';
-import { pathId, readJsonObject, requireInt, requireText } from '../_lib/validate.ts';
+import { db } from '../../src/db/index.js';
+import { products } from '../../src/db/schema.js';
+import { ApiError, dbErrorCode, json, noContent, respondError } from '../_lib/errors.js';
+import { pathId, readJsonObject, requireInt, requireText } from '../_lib/validate.js';
 
 export async function PATCH(request: Request): Promise<Response> {
   try {

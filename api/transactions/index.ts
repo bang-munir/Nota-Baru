@@ -1,12 +1,12 @@
-import { db } from '../../src/db/index.ts';
+import { db } from '../../src/db/index.js';
 import {
   discounts as discountsTable,
   payments as paymentsTable,
   transactionItems,
   transactions,
-} from '../../src/db/schema.ts';
-import { ApiError, json, respondError } from '../_lib/errors.ts';
-import { assertProductsExist, listTransactionRows } from '../_lib/store.ts';
+} from '../../src/db/schema.js';
+import { ApiError, json, respondError } from '../_lib/errors.js';
+import { assertProductsExist, listTransactionRows } from '../_lib/store.js';
 import {
   buildTransaction,
   parseCustomerName,
@@ -15,8 +15,8 @@ import {
   parseItems,
   parsePayments,
   toApiTransaction,
-} from '../_lib/transactions.ts';
-import { generateId, readJsonObject, requireInt, requireText } from '../_lib/validate.ts';
+} from '../_lib/transactions.js';
+import { generateId, readJsonObject, requireInt, requireText } from '../_lib/validate.js';
 
 export async function GET(): Promise<Response> {
   try {

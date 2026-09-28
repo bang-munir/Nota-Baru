@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
-import { db } from '../../src/db/index.ts';
-import { payments } from '../../src/db/schema.ts';
-import { ApiError, json, noContent, respondError } from '../_lib/errors.ts';
-import { toApiPayment } from '../_lib/transactions.ts';
-import { optionalText, pathId, readJsonObject, requireInt, requireTimestamp } from '../_lib/validate.ts';
+import { db } from '../../src/db/index.js';
+import { payments } from '../../src/db/schema.js';
+import { ApiError, json, noContent, respondError } from '../_lib/errors.js';
+import { toApiPayment } from '../_lib/transactions.js';
+import { optionalText, pathId, readJsonObject, requireInt, requireTimestamp } from '../_lib/validate.js';
 
 export async function PATCH(request: Request): Promise<Response> {
   try {

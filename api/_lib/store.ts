@@ -1,8 +1,8 @@
 import { desc, eq, inArray } from 'drizzle-orm';
-import { db } from '../../src/db/index.ts';
-import { products, transactions } from '../../src/db/schema.ts';
-import { ApiError } from './errors.ts';
-import type { ApiItem, TransactionRow } from './transactions.ts';
+import { db } from '../../src/db/index.js';
+import { products, transactions } from '../../src/db/schema.js';
+import { ApiError } from './errors.js';
+import type { ApiItem, TransactionRow } from './transactions.js';
 
 const relationConfig = {
   with: { items: true, discounts: true, payments: true },

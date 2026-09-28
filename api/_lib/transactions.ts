@@ -1,4 +1,4 @@
-import { ApiError } from './errors.ts';
+import { ApiError } from './errors.js';
 import {
   asObject,
   generateId,
@@ -6,7 +6,7 @@ import {
   requireDate,
   requireInt,
   requireText,
-} from './validate.ts';
+} from './validate.js';
 
 export interface ApiItem {
   productId: string;

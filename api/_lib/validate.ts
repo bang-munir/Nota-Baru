@@ -1,4 +1,4 @@
-import { ApiError } from './errors.ts';
+import { ApiError } from './errors.js';
 
 export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
   let parsed: unknown;

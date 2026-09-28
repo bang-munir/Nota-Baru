@@ -1,8 +1,8 @@
 import { asc } from 'drizzle-orm';
-import { db } from '../../src/db/index.ts';
-import { products } from '../../src/db/schema.ts';
-import { json, respondError } from '../_lib/errors.ts';
-import { readJsonObject, requireInt, requireText } from '../_lib/validate.ts';
+import { db } from '../../src/db/index.js';
+import { products } from '../../src/db/schema.js';
+import { json, respondError } from '../_lib/errors.js';
+import { readJsonObject, requireInt, requireText } from '../_lib/validate.js';
 
 interface ProductRow {
   id: string;

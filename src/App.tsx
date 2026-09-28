@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Product, Transaction, Payment, ViewType, ThemeType } from './types';
-import { api, PaymentInput } from './lib/api.ts';
+import { api, PaymentInput } from './lib/api.js';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 

@@ -1,8 +1,8 @@
 import { asc, eq } from 'drizzle-orm';
-import { db } from '../../src/db/index.ts';
-import { payments, transactions } from '../../src/db/schema.ts';
-import { ApiError, json, respondError } from '../_lib/errors.ts';
-import { toApiPayment } from '../_lib/transactions.ts';
+import { db } from '../../src/db/index.js';
+import { payments, transactions } from '../../src/db/schema.js';
+import { ApiError, json, respondError } from '../_lib/errors.js';
+import { toApiPayment } from '../_lib/transactions.js';
 import {
   generateId,
   optionalText,
@@ -10,7 +10,7 @@ import {
   requireInt,
   requireText,
   requireTimestamp,
-} from '../_lib/validate.ts';
+} from '../_lib/validate.js';
 
 export async function GET(): Promise<Response> {
   try {
